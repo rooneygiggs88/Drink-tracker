@@ -670,3 +670,14 @@ button.tile:active { transform: scale(.97); }
 .stop-head { font-size: 18px; font-weight: 800; line-height: 1.3; margin: 6px 0 4px; color: #8be0b0; }
 
 .panel-sub { white-space: nowrap; }
+
+/* ---------- Traffic-light tiles, panel reason, stop-now up top ---------- */
+.tile.warn-g { border-left-color: var(--lvl-0); }
+.tiles.compact .tile.warn-0 { border-left-color: var(--line); }
+.panel-why { margin-top: 6px; font-size: 15px; line-height: 1.35; opacity: .9; }
+.panel-why b { color: #fff; }
+.card.stoptop {
+  border: 2px solid var(--lvl-0);
+  background: linear-gradient(180deg, rgba(29,107,66,.28), var(--surface) 70%);
+}
+.card.stoptop .stop-head { font-size: 20px; }

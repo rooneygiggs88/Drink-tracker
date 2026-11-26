@@ -902,11 +902,11 @@ function guidance(a) {
     if (tone === 'light') reasons.push(workReason);
   }
   if (u >= R) reasons.push(`<b>Past your red line</b> by about ${pintsLeftText(u - R).replace(/ \(.*\)/, '')}.`);
-  else reasons.push(`About <b>${pintsLeftText(R - u)}</b> before you're in the red.`);
+  else reasons.push(R - u < PINT_UNITS / 2 ? "<b>Under half a pint</b> before you're in the red." : `About <b>${pintsLeftText(R - u)}</b> before you're in the red.`);
 
   if (c) {
     const f = FEELINGS[fl];
-    let t = `You said <b>${f.label.toLowerCase()}</b> at ${fmtTime(c.ts)}, after ≈${fmtPints(pintEq(c.units))} pints.`;
+    let t = `You said <b>${f.label.toLowerCase()}</b> at ${fmtTime(c.ts)}, after ≈${fmtPints(pintEq(c.units))} ${pintEq(c.units) < 1.25 ? 'pint' : 'pints'}.`;
     if (feltEarly) t += " That's early for you.";
     if (fineButHigh) t += ' Alcohol keeps rising for 30–90 minutes after a drink, so feeling fine lags behind.';
     reasons.push(t);
@@ -1092,7 +1092,7 @@ function setLevelClass(el, level) {
   el.classList.add(LVL_CLASS(level));
 }
 
-// warn: 0 = fine, 1 = amber edge, 2 = red edge
+// warn: 'g' green, 1 amber, 2 red, 0 neutral
 function tile(icon, label, value, sub, warn = 0, action = '') {
   const tag = action ? 'button' : 'div';
   return `<${tag} class="tile warn-${warn}"${action ? ` data-action="${action}"` : ''}>
@@ -1116,7 +1116,7 @@ function renderNow(a) {
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
-  $('nowSub').textContent = n ? (a.ended ? `${fmtTime(a.first)}–${fmtTime(a.ended)} · ${fmtDur(a.elapsed)}` : `· out ${fmtDur(a.elapsed)}`) : '';
+  $('nowSub').textContent = n ? (a.ended ? `${fmtTime(a.first)}–${fmtTime(a.ended)} · ${fmtDur(a.elapsed)}` : (a.elapsed < 5 * MIN ? '· just started' : `· out ${fmtDur(a.elapsed)}`)) : '';
   $('nowPlan').innerHTML = G
     ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}`
     : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
@@ -1137,22 +1137,26 @@ function renderNow(a) {
 
   // ---- 3. Numbers ----
   const tiles = [];
+  const light = l => (l <= 0 ? 'g' : l);   // 0 → green
   if (n) {
     if (!a.ended) tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
-      a.avgGap ? 'per pint' : "first one's free", a.paceLevel));
-    if (a.inSystem > 0.05 && !a.ended) tiles.push(tile('🫀', 'Sober at', fmtTime(a.soberAt), `≈${fmtPints(pintEq(a.inSystem))} pints left`));
-    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend).replace(/\.00$/, ''), s.unpriced ? `+${s.unpriced} unpriced` : `${s.kcal.toLocaleString('en-GB')} kcal`));
+      a.avgGap ? 'per pint' : "first one's free", light(a.paceLevel)));
+    const tt = tomorrowTier(a, s.units);
+    tiles.push(tile('🌅', 'Tomorrow', ['Fine', 'Groggy', 'Rough', 'Lost day', '2 days'][tt.tier],
+      a.soberAt ? `sober ~${fmtTime(a.soberAt)}` : 'all clear', [ 'g', 'g', 1, 2, 2 ][tt.tier]));
+    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend).replace(/\.00$/, ''), s.unpriced ? `+${s.unpriced} unpriced` : `${s.kcal.toLocaleString('en-GB')} kcal`, light(a.level)));
     const lf = a.lastFood;
+    const foodLvl = a.fed ? 'g' : lf ? 1 : n >= 3 ? 2 : 1;
     tiles.push(tile('🍔', 'Food', lf ? fmtAgo(a.now - lf.ts).replace(' ago', '') : 'None',
-      lf ? (a.fed ? FOOD_KINDS[lf.kind].label.toLowerCase() : 'wearing off') : 'tap to log',
-      n >= 3 && !a.fed ? (lf ? 1 : 2) : 0, 'food'));
+      lf ? (a.fed ? FOOD_KINDS[lf.kind].label.toLowerCase() : 'wearing off') : 'tap to log', foodLvl, 'food'));
+    const dsw = a.drinksSinceWater;
     tiles.push(tile('💧', 'Water', String(s.water.length),
-      a.drinksSinceWater >= 2 ? `${a.drinksSinceWater} drinks since` : 'tap to log', a.drinksSinceWater >= 3 ? 1 : 0, 'water'));
+      dsw >= 2 ? `${dsw} drinks since` : s.water.length ? 'keep it up' : 'tap to log', dsw >= 4 ? 2 : dsw >= 2 ? 1 : 'g', 'water'));
     if (!a.ended) {
       if (a.home) {
         const left = a.home - a.now;
         tiles.push(left > 0
-          ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 0, 'home')
+          ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 'g', 'home')
           : tile('🏠', 'Home', 'Passed', `was ${fmtTime(a.home)}`, 2, 'home'));
       } else {
         tiles.push(tile('🏠', 'Home', '—', 'tap to set', 0, 'home'));
@@ -1164,22 +1168,37 @@ function renderNow(a) {
 
   // ---- 4. The briefing: why, how you might feel, if you stop now, one nudge ----
   const parts = [];
-  const why = n && !a.ended ? g.reasons.filter(r => !SHOWN_ELSEWHERE.some(rx => rx.test(r))).slice(0, 3) : g.reasons;
-  if (why.length) parts.push(`<div class="tile-label">${a.ended ? '🌙 Before bed' : n ? '🧭 Why' : '🧭 Before you start'}</div>
-    <ul class="guide-why">${why.map(r => `<li>${r}</li>`).join('')}</ul>`);
+  const live = n && !a.ended;
+  const isFeel = r => /You said|usually feel drunk/.test(r);
+  const isHome = r => /At this pace/.test(r);
+  const why = live ? g.reasons.filter(r => !SHOWN_ELSEWHERE.some(rx => rx.test(r)) && !isFeel(r) && !isHome(r) && !/Big night basics/.test(r)) : [];
+  // The one reason that matters sits under the instruction in the panel.
+  $('nowWhy').innerHTML = why[0] || '';
+  $('nowWhy').hidden = !why[0];
+  if (!live && g.reasons.length) parts.push(`<div class="tile-label">${a.ended ? '🌙 Before bed' : '🧭 Before you start'}</div>
+    <ul class="guide-why">${g.reasons.map(r => `<li>${r}</li>`).join('')}</ul>`);
 
-  if (n && !a.ended && a.inSystem > 0.05) {
+  if (live && a.inSystem > 0.05) {
     const foodNote = a.fed ? 'Eaten recently, so it creeps up slower.' : a.lastFood ? 'Food wearing off, so it hits harder.' : 'Empty stomach, so it hits harder and faster.';
+    const extra = g.reasons.filter(isFeel).map(r => `<div class="stop-line">${r}</div>`).join('');
     parts.push(`<div class="brief-sec"><div class="tile-label">🧠 How you might feel</div>
-      <div class="brief-feel">${howYouMightFeel(a.inSystem)}</div><div class="feel-note">${foodNote}</div></div>`);
+      <div class="brief-feel">${howYouMightFeel(a.inSystem)}</div><div class="feel-note">${foodNote}</div>${extra}</div>`);
   }
 
-  if (n >= 2 && !a.ended) {
+  // If you stop now: up top when it matters (near/over plan, amber+, told "last one"), else down here.
+  const stopUrgent = live && n >= 2 && (g.stop || g.lastOne || g.overPlan || g.atPlan || a.uLevel >= 1);
+  let stopHtml = '';
+  if (live && n >= 2) {
     const sn = stopNow(a, g);
-    parts.push(`<div class="brief-sec stopnow"><div class="tile-label">🌙 If you stop now</div>
-      <div class="stop-head">${sn.headline}</div>` +
-      sn.lines.map(l => `<div class="stop-line">${l}</div>`).join('') + '</div>');
-  } else if (n) {
+    const homeLine = g.reasons.filter(isHome).map(r => `<div class="stop-line">🏠 ${r.replace('At this pace', 'Keep this pace')}</div>`).join('');
+    stopHtml = `<div class="tile-label">🌙 If you stop now</div><div class="stop-head">${sn.headline}</div>` +
+      sn.lines.map(l => `<div class="stop-line">${l}</div>`).join('') + homeLine;
+  }
+  $('stopTop').innerHTML = stopUrgent ? stopHtml : '';
+  $('stopTop').hidden = !stopUrgent;
+  if (stopHtml && !stopUrgent) {
+    parts.push(`<div class="brief-sec stopnow">${stopHtml}</div>`);
+  } else if (n && !stopHtml) {
     const tm = tomorrowNudge(a);
     if (tm) parts.push(`<div class="brief-sec"><div class="tile-label">🏋️ Tomorrow</div><div class="stop-line">${tm.text}</div></div>`);
   }
