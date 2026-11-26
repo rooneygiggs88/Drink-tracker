@@ -162,6 +162,7 @@ function loadData() {
   state.log = store.get('log', []);
   state.water = store.get('water', []);
   state.food = store.get('food', []);
+  state.snooze = store.get('snooze', null);
   state.checkins = store.get('checkins', []);
   state.mornings = store.get('mornings', {});
   state.plans = store.get('plans', {});
@@ -489,9 +490,14 @@ function setLevelClass(el, level) {
   el.classList.add(LVL_CLASS(level));
 }
 
-function fact(icon, title, main, sub) {
-  return `<li class="fact"><span class="fact-icon">${icon}</span><div class="fact-body">
-    <div class="fact-title">${title}</div><div class="fact-main">${main}</div>${sub ? `<div class="fact-sub">${sub}</div>` : ''}</div></li>`;
+// warn: 0 = fine, 1 = amber edge, 2 = red edge
+function tile(icon, label, value, sub, warn = 0, action = '') {
+  const tag = action ? 'button' : 'div';
+  return `<${tag} class="tile warn-${warn}"${action ? ` data-action="${action}"` : ''}>
+    <div class="tile-label">${icon} ${label}</div>
+    <div class="tile-value">${value}</div>
+    <div class="tile-sub">${sub}</div>
+  </${tag}>`;
 }
 
 function renderNow(a) {
@@ -506,85 +512,79 @@ function renderNow(a) {
   renderMorningCard(a);
   renderCheckinCard(a);
 
-  const facts = [];
+  // ---- Tiles: numbers you can read at a glance ----
+  const tiles = [];
   if (n) {
-    facts.push(fact('⏱️', 'Time out', `Out for ${fmtDur(a.elapsed)}`,
-      `Started ${fmtTime(a.first)} · last drink ${fmtAgo(a.now - a.last)}`));
-    facts.push(fact('🍺', 'Pace',
-      `${a.avgGap ? '1 drink every ' + fmtDur(a.avgGap) : 'Just getting started'}<span class="tag ${LVL_CLASS(a.paceLevel)}">${PACE_NAME[a.paceLevel]}</span>`,
-      `${plural(a.lastHour, 'drink')} in the last hour. Your body only clears about 1 unit an hour.`));
+    tiles.push(tile('⏱️', 'Out for', fmtDur(a.elapsed), `since ${fmtTime(a.first)}`));
+    tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
+      a.avgGap ? `per drink · ${a.lastHour} in last hr` : `${a.lastHour} in last hr`, a.paceLevel));
   }
-
   if (a.inSystem > 0.05) {
-    facts.push(fact('🫀', 'In your system',
-      `~${fmtUnits(a.inSystem)} units · zero by ${fmtWhen(a.soberAt)}`,
-      `Your body clears roughly ${CLEAR_RATE} unit an hour, so about ${fmtDur((a.inSystem / CLEAR_RATE) * HOUR)} if you stopped now. Every extra pint adds ~2½ hours.`));
+    tiles.push(tile('🫀', 'In system', `${fmtUnits(a.inSystem)}u`, `zero ${fmtWhen(a.soberAt)}`));
+  }
+  if (n) {
+    if (a.home) {
+      const left = a.home - a.now;
+      tiles.push(left > 0
+        ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 0, 'home')
+        : tile('🏠', 'Home time', 'Passed', `was ${fmtTime(a.home)}`, 2, 'home'));
+    } else {
+      tiles.push(tile('🏠', 'Home time', '—', 'tap to set', 0, 'home'));
+    }
+    const lf = a.lastFood;
+    tiles.push(tile('🍔', 'Food', lf ? fmtAgo(a.now - lf.ts) : 'None',
+      lf ? FOOD_KINDS[lf.kind].label + (a.fed ? '' : ' · wearing off') : 'get something in',
+      n >= 3 && !a.fed ? (lf ? 1 : 2) : 0, 'food'));
+    tiles.push(tile('💧', 'Water', String(s.water.length),
+      a.drinksSinceWater >= 2 ? `${a.drinksSinceWater} drinks since` : 'glasses', a.drinksSinceWater >= 3 ? 1 : 0, 'water'));
+    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend), s.unpriced ? `+ ${s.unpriced} unpriced` : 'tonight'));
+    tiles.push(tile('🔥', 'Calories', s.kcal.toLocaleString('en-GB'), `≈ ${(s.kcal / BIG_MAC_KCAL).toFixed(1)} Big Macs`));
+  }
+  $('tiles').innerHTML = tiles.join('');
+  $('tiles').hidden = !tiles.length;
+
+  // ---- One card for the words ----
+  const lines = [];
+  if (a.inSystem > 0.05) {
     const foodNote = a.fed
       ? "You've eaten recently, so it'll creep up a bit slower."
-      : a.lastFood ? 'Your last food is wearing off, so drinks will start hitting harder.'
+      : a.lastFood ? 'Your food is wearing off, so drinks will start hitting harder.'
       : 'On an empty stomach this hits harder and faster.';
-    facts.push(fact('🧠', 'How you might feel', howYouMightFeel(a.inSystem),
-      foodNote + ' Sleep, weight and mood change it too.'));
+    lines.push(`<p class="feel-main">${howYouMightFeel(a.inSystem)}</p><p class="feel-note">${foodNote}</p>`);
   }
-
   if (a.drunkPoint) {
     const gap = a.drunkPoint.units - s.units;
-    const where = gap > 0.5 ? `You're about ${fmtUnits(gap)} units away.` : "You're there now.";
-    facts.push(fact('📍', 'Your tipping point',
-      `You usually feel drunk around ${fmtUnits(a.drunkPoint.units)} units`,
-      `Based on ${plural(a.drunkPoint.nights, 'night')} of check-ins${a.drunkPoint.fed === undefined ? '' : a.drunkPoint.fed ? ' when you\'d eaten' : ' on an empty stomach'}. ${where}`));
+    const ctx = a.drunkPoint.fed === undefined ? '' : a.drunkPoint.fed ? ' when you\'ve eaten' : ' on an empty stomach';
+    lines.push(`<p class="feel-line">📍 You usually feel drunk around <b>${fmtUnits(a.drunkPoint.units)} units</b>${ctx}. ${gap > 0.5 ? `About <b>${fmtUnits(gap)}</b> to go.` : '<b>You\'re there.</b>'}</p>`);
   }
-
   if (a.lastCheckin) {
     const f = FEELINGS[a.lastCheckin.level];
-    facts.push(fact(f.emoji, 'Last check-in', `${f.label} at ${fmtTime(a.lastCheckin.ts)}`,
-      `You'd had ${fmtUnits(a.lastCheckin.units)} units then.`));
+    lines.push(`<p class="feel-line">${f.emoji} You said <b>${f.label.toLowerCase()}</b> at ${fmtTime(a.lastCheckin.ts)}, on ${fmtUnits(a.lastCheckin.units)} units.</p>`);
   }
-
-  if (a.home) {
-    if (a.now < a.home) {
-      let sub = '';
-      if (a.avgGap && n >= 2) {
-        const more = Math.floor((a.home - a.now) / a.avgGap);
-        sub = `At this pace that's ~${plural(more, 'more drink')}, finishing on ~${fmtUnits(s.units + more * (s.units / n))} units.`;
-      }
-      facts.push(fact('🏠', 'Home time', `Home by ${fmtTime(a.home)} · ${fmtDur(a.home - a.now)} to go`, sub));
-    } else {
-      facts.push(fact('🏠', 'Home time', `Home time was ${fmtTime(a.home)}`, `That was ${fmtAgo(a.now - a.home)}. Get your coat.`));
-    }
+  if (a.home && a.now < a.home && a.avgGap && n >= 2) {
+    const more = Math.floor((a.home - a.now) / a.avgGap);
+    lines.push(`<p class="feel-line">🏠 At this pace that's <b>~${plural(more, 'more drink')}</b> by ${fmtTime(a.home)}, finishing on <b>~${fmtUnits(s.units + more * (s.units / n))} units</b>.</p>`);
   }
-
-  if (n) {
-    facts.push(fact('💷', 'Spent', fmtMoney(s.spend) + (s.unpriced ? ` <span class="fact-sub">+ ${s.unpriced} unpriced</span>` : ''),
-      s.unpriced ? 'Set prices in Add → ✎ Edit.' : 'Based on the prices in your library.'));
-    facts.push(fact('🔥', 'Calories', `${s.kcal.toLocaleString('en-GB')} kcal`,
-      `About ${(s.kcal / BIG_MAC_KCAL).toFixed(1)} Big Macs' worth.`));
+  if (a.inSystem > 0.05) {
+    lines.push(`<p class="feel-note">Your body clears about ${CLEAR_RATE} unit an hour. Every extra pint adds ~2½ hours.</p>`);
   }
-  if (n || s.food.length) {
-    const lf = a.lastFood;
-    facts.push(fact('🍔', 'Food',
-      lf ? `${FOOD_KINDS[lf.kind].label} at ${fmtTime(lf.ts)} · ${fmtAgo(a.now - lf.ts)}` : 'Nothing yet',
-      lf ? (a.fed ? 'Still lining your stomach.' : 'Probably wearing off by now.') : 'Food slows how fast the alcohol hits you.'));
-  }
-  if (n || s.water.length) {
-    const ws = s.water.length;
-    facts.push(fact('💧', 'Water', ws ? plural(ws, 'glass', 'glasses') : 'None yet',
-      a.drinksSinceWater >= 2 ? `${plural(a.drinksSinceWater, 'drink')} since your last water.` : ''));
-  }
-
-  $('facts').innerHTML = facts.join('');
+  $('feelCard').innerHTML = `<div class="tile-label">🧠 How you might feel</div>` + lines.join('');
+  $('feelCard').hidden = !lines.length;
 }
 
 function renderCheckinCard(a) {
   const card = $('checkinCard');
-  const due = a.n >= 2 && a.drinksSinceCheckin >= (a.lastCheckin ? 3 : 2);
+  // After your 2nd drink, then every 3 drinks since your last check-in (or "not now").
+  const snoozed = state.snooze && state.snooze.key === a.key && a.n - state.snooze.n < 3;
+  const due = !snoozed && a.n >= 2 && a.drinksSinceCheckin >= (a.lastCheckin ? 3 : 2);
   card.hidden = !due;
   if (!due) return;
   card.innerHTML = `
     <div class="prompt-title">Quick check: how are you feeling?</div>
     <div class="prompt-sub">One tap. It teaches the app where your tipping point is.</div>
     <div class="prompt-faces">${FEELINGS.map((f, i) =>
-      `<button data-feel="${i}">${f.emoji}<span>${f.label}</span></button>`).join('')}</div>`;
+      `<button data-feel="${i}">${f.emoji}<span>${f.label}</span></button>`).join('')}</div>
+    <button class="prompt-skip" data-snooze="1">Not now</button>`;
 }
 
 // The most recent night (yesterday or the day before) still waiting for a morning rating.
@@ -972,8 +972,21 @@ function bind() {
   $('feelBtn').addEventListener('click', () => openSheet('feelSheet'));
   $('homeBtn').addEventListener('click', openHomeSheet);
   $('checkinCard').addEventListener('click', e => {
+    if (e.target.closest('[data-snooze]')) {
+      const a = analyse();
+      state.snooze = { key: a.key, n: a.n };
+      store.set('snooze', state.snooze);
+      return render();
+    }
     const b = e.target.closest('[data-feel]');
     if (b) logFeeling(Number(b.dataset.feel));
+  });
+  $('tiles').addEventListener('click', e => {
+    const b = e.target.closest('[data-action]');
+    if (!b) return;
+    if (b.dataset.action === 'home') openHomeSheet();
+    if (b.dataset.action === 'food') $('foodBtn').click();
+    if (b.dataset.action === 'water') logWater();
   });
   $('morningCard').addEventListener('click', e => {
     const b = e.target.closest('[data-morning]');

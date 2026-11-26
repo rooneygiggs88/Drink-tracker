@@ -1,5 +1,5 @@
 // Bump CACHE when you change any app file so phones pick up the update.
-const CACHE = 'drink-tracker-v3';
+const CACHE = 'drink-tracker-v4';
 const ASSETS = [
   './',
   './index.html',

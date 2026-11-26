@@ -454,3 +454,45 @@ main { padding-bottom: calc(var(--tabs-h) + var(--safe-bottom) + 90px); }
   font-weight: 800;
 }
 .when button:first-child { background: var(--accent); color: var(--accent-ink); }
+
+/* ---------- Now: glanceable tiles ---------- */
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.tile {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--line);
+  min-width: 0;
+}
+button.tile:active { transform: scale(.97); }
+.tile.warn-1 { border-left-color: var(--lvl-1); }
+.tile.warn-2 { border-left-color: var(--lvl-2); }
+.tile.warn-1 .tile-value { color: #f5a524; }
+.tile.warn-2 .tile-value { color: #ff6b5f; }
+.tile-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 700;
+}
+.tile-value {
+  font-size: 28px;
+  font-weight: 900;
+  margin-top: 4px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-sub { font-size: 13px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.card.feel { margin-top: 12px; }
+.feel p { margin: 8px 0 0; line-height: 1.4; }
+.feel-main { font-size: 18px; font-weight: 700; }
+.feel-line { font-size: 15px; }
+.feel-line b { color: var(--accent); }
+.feel-note { font-size: 13px; color: var(--muted); }
