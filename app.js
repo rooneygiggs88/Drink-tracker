@@ -702,7 +702,13 @@ function stopNowLines(a, g) {
   lines.push(`Clear by <b>${fmtWhen(zeroNow)}</b>. One more pushes that to <b>${fmtWhen(zeroMore)}</b>.`);
 
   const now = tomorrowTier(a, u), next = tomorrowTier(a, u + more);
-  lines.push(`🏋️ <b>${now.day}:</b> ${now.short}.` +
+  let work = '';
+  if (a.goal && a.goal.work) {
+    const eight = keyToDate(a.key); eight.setDate(eight.getDate() + 1); eight.setHours(8, 0, 0, 0);
+    const at8 = a.inSystem - Math.max(0, (eight - a.now) / HOUR) * CLEAR_RATE;
+    work = at8 > 0.3 ? ` And ~${fmtUnits(at8)} units still in you at 8am for work.` : ' Clear by 8am for work.';
+  }
+  lines.push(`🏋️ <b>${now.day}${a.goal && a.goal.work ? ' (work)' : ''}:</b> ${now.short}.${work}` +
     (next.tier > now.tier ? `<br><b>One more pint:</b> ${next.short}.` : ''));
 
   if (u >= 4) {
@@ -1075,97 +1081,95 @@ function tile(icon, label, value, sub, warn = 0, action = '') {
   </${tag}>`;
 }
 
+// Reasons the tiles/pill already show, so the briefing doesn't repeat them.
+const SHOWN_ELSEWHERE = [/ Plan: /, /Nothing eaten|Last ate/, /since your last water/, /Work tomorrow/];
+
 function renderNow(a) {
   const { s, n } = a;
+  const G = a.goal ? GOALS[a.goal.type] : null;
+  const g = guidance(a);
+
+  // ---- 1. The tally ----
   setLevelClass($('panel'), a.level);
   $('nowDate').textContent = 'Tonight · ' + fmtNight(a.key) + (a.ended ? ' · done at ' + fmtTime(a.ended) : '');
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
-  const G = a.goal ? GOALS[a.goal.type] : null;
+  $('nowSub').textContent = n ? (a.ended ? `${fmtTime(a.first)}–${fmtTime(a.ended)} · ${fmtDur(a.elapsed)}` : `out ${fmtDur(a.elapsed)} · since ${fmtTime(a.first)}`) : '';
   $('nowPlan').innerHTML = G
     ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}`
     : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
-  const g = guidance(a);
   $('nowHeadline').textContent = g.title;
+  $('nowNext').innerHTML = g.next || '';
+  $('nowNext').hidden = !g.next;
 
   renderMorningCard(a);
+  renderClearCard(a);
   renderCheckinCard(a);
 
-  // ---- What now: reasons, next-drink time, buttons ----
-  renderClearCard(a);
-
-  // ---- Tomorrow + rotating nudges ----
-  const showStop = n >= 2 && !a.ended;
-  $('stopCard').hidden = !showStop;
-  if (showStop) {
-    $('stopCard').innerHTML = `<div class="tile-label">🌙 If you stop now</div>` +
-      stopNowLines(a, g).map(l => `<div class="stop-line">${l}</div>`).join('');
-  }
-  const tm = n && !showStop ? tomorrowNudge(a) : null;
-  const nudges = n ? pickNudges(a) : [];
-  $('nudgeCard').hidden = !tm && !nudges.length;
-  $('nudgeCard').innerHTML = [tm, ...nudges].filter(Boolean).map(x =>
-    `<div class="nudge"><span class="nudge-icon">${x.icon}</span><div>${x.label ? `<div class="tile-label">${x.label}</div>` : ''}${x.text}</div></div>`).join('');
-
-  $('guideCard').innerHTML = `
-    <div class="tile-label">${a.ended ? '🌙 Before bed' : '🧭 What now'}</div>
-    ${g.next ? `<div class="guide-next">${g.next}</div>` : ''}
-    <ul class="guide-why">${g.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
-    ${g.actions.length ? `<div class="guide-actions">${g.actions.map(k =>
-      `<button class="guide-btn${k === 'done' ? ' stop' : ''}" data-guide="${k}">${GUIDE_ACTIONS[k]}</button>`).join('')}</div>` : ''}`;
-
+  // ---- 2. Actions ----
   $('goAdd').innerHTML = a.ended ? '<span>+</span> Add drink anyway' : '<span>+</span> Add drink';
-  $('doneBtn').hidden = !n || !!a.ended || g.actions.includes('done');
+  const urgent = g.stop || g.lastOne;
+  $('doneBtn').innerHTML = a.ended ? '↩︎<span>Not done</span>' : '🛑<span>Done</span>';
+  $('doneBtn').classList.toggle('urgent', !!urgent && !a.ended);
+  $('doneBtn').hidden = !n;
 
-  // ---- Tiles: numbers you can read at a glance ----
+  // ---- 3. Numbers ----
   const tiles = [];
   if (n) {
-    tiles.push(a.ended
-      ? tile('⏱️', 'Session', fmtDur(a.elapsed), `${fmtTime(a.first)}–${fmtTime(a.ended)}`)
-      : tile('⏱️', 'Out for', fmtDur(a.elapsed), `since ${fmtTime(a.first)}`));
     if (!a.ended) tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
-      a.avgGap ? `per pint · ${a.lastHour} in last hr` : 'first one\'s free', a.paceLevel));
-  }
-  if (a.inSystem > 0.05) {
-    tiles.push(tile('🫀', 'In system', `${fmtUnits(a.inSystem)}u`, `zero ${fmtWhen(a.soberAt)}`));
-  }
-  if (n) {
-    if (a.ended) { /* home time no longer matters */ }
-    else if (a.home) {
-      const left = a.home - a.now;
-      tiles.push(left > 0
-        ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 0, 'home')
-        : tile('🏠', 'Home time', 'Passed', `was ${fmtTime(a.home)}`, 2, 'home'));
-    } else {
-      tiles.push(tile('🏠', 'Home time', '—', 'tap to set', 0, 'home'));
-    }
+      a.avgGap ? 'per pint' : "first one's free", a.paceLevel));
+    if (a.inSystem > 0.05 && !a.ended) tiles.push(tile('🫀', 'In you', `${fmtUnits(a.inSystem)}u`, `zero ${fmtTime(a.soberAt)}`));
+    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend).replace(/\.00$/, ''), s.unpriced ? `+${s.unpriced} unpriced` : `${s.kcal.toLocaleString('en-GB')} kcal`));
     const lf = a.lastFood;
-    tiles.push(tile('🍔', 'Food', lf ? fmtAgo(a.now - lf.ts) : 'None',
-      lf ? FOOD_KINDS[lf.kind].label + (a.fed ? '' : ' · wearing off') : 'get something in',
+    tiles.push(tile('🍔', 'Food', lf ? fmtAgo(a.now - lf.ts).replace(' ago', '') : 'None',
+      lf ? (a.fed ? FOOD_KINDS[lf.kind].label.toLowerCase() : 'wearing off') : 'tap to log',
       n >= 3 && !a.fed ? (lf ? 1 : 2) : 0, 'food'));
     tiles.push(tile('💧', 'Water', String(s.water.length),
-      a.drinksSinceWater >= 2 ? `${a.drinksSinceWater} drinks since` : 'glasses', a.drinksSinceWater >= 3 ? 1 : 0, 'water'));
-    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend), s.unpriced ? `+ ${s.unpriced} unpriced` : 'tonight'));
-    tiles.push(tile('🔥', 'Calories', s.kcal.toLocaleString('en-GB'), `≈ ${(s.kcal / BIG_MAC_KCAL).toFixed(1)} Big Macs`));
+      a.drinksSinceWater >= 2 ? `${a.drinksSinceWater} drinks since` : 'tap to log', a.drinksSinceWater >= 3 ? 1 : 0, 'water'));
+    if (!a.ended) {
+      if (a.home) {
+        const left = a.home - a.now;
+        tiles.push(left > 0
+          ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 0, 'home')
+          : tile('🏠', 'Home', 'Passed', `was ${fmtTime(a.home)}`, 2, 'home'));
+      } else {
+        tiles.push(tile('🏠', 'Home', '—', 'tap to set', 0, 'home'));
+      }
+    }
   }
   $('tiles').innerHTML = tiles.join('');
   $('tiles').hidden = !tiles.length;
 
-  // ---- One card for the words ----
-  const lines = [];
-  if (a.inSystem > 0.05) {
-    const foodNote = a.fed
-      ? "You've eaten recently, so it'll creep up a bit slower."
-      : a.lastFood ? 'Your food is wearing off, so drinks will start hitting harder.'
-      : 'On an empty stomach this hits harder and faster.';
-    lines.push(`<p class="feel-main">${howYouMightFeel(a.inSystem)}</p><p class="feel-note">${foodNote}</p>`);
+  // ---- 4. The briefing: why, how you might feel, if you stop now, one nudge ----
+  const parts = [];
+  const why = n && !a.ended ? g.reasons.filter(r => !SHOWN_ELSEWHERE.some(rx => rx.test(r))).slice(0, 3) : g.reasons;
+  if (why.length) parts.push(`<div class="tile-label">${a.ended ? '🌙 Before bed' : n ? '🧭 Why' : '🧭 Before you start'}</div>
+    <ul class="guide-why">${why.map(r => `<li>${r}</li>`).join('')}</ul>`);
+
+  if (n && !a.ended && a.inSystem > 0.05) {
+    const foodNote = a.fed ? 'Eaten recently, so it creeps up slower.' : a.lastFood ? 'Food wearing off, so it hits harder.' : 'Empty stomach, so it hits harder and faster.';
+    parts.push(`<div class="brief-sec"><div class="tile-label">🧠 How you might feel</div>
+      <div class="brief-feel">${howYouMightFeel(a.inSystem)}</div><div class="feel-note">${foodNote}</div></div>`);
   }
-  if (a.inSystem > 0.05) {
-    lines.push(`<p class="feel-note">Your body clears about ${CLEAR_RATE} unit an hour. Every extra pint adds ~2½ hours.</p>`);
+
+  if (n >= 2 && !a.ended) {
+    parts.push(`<div class="brief-sec stopnow"><div class="tile-label">🌙 If you stop now</div>` +
+      stopNowLines(a, g).map(l => `<div class="stop-line">${l}</div>`).join('') + '</div>');
+  } else if (n) {
+    const tm = tomorrowNudge(a);
+    if (tm) parts.push(`<div class="brief-sec"><div class="tile-label">🏋️ Tomorrow</div><div class="stop-line">${tm.text}</div></div>`);
   }
-  $('feelCard').innerHTML = `<div class="tile-label">🧠 How you might feel</div>` + lines.join('');
-  $('feelCard').hidden = !lines.length;
+
+  const nudge = n ? pickNudges(a, 1)[0] : null;
+  if (nudge) parts.push(`<div class="brief-sec"><div class="nudge"><span class="nudge-icon">${nudge.icon}</span><div>${nudge.text}</div></div></div>`);
+
+  const acts = g.actions.filter(k => !['water', 'food', 'done', 'undone'].includes(k));
+  if (acts.length) parts.push(`<div class="guide-actions">${acts.map(k =>
+    `<button class="guide-btn" data-guide="${k}">${GUIDE_ACTIONS[k]}</button>`).join('')}</div>`);
+
+  $('guideCard').innerHTML = parts.join('');
+  $('guideCard').hidden = !parts.length;
 }
 
 // Live countdown to zero units: shown once you're done, and the morning after.
@@ -1624,7 +1628,7 @@ function bind() {
 
   // Now screen
   $('goAdd').addEventListener('click', () => goTo('add'));
-  $('doneBtn').addEventListener('click', () => setDone(true));
+  $('doneBtn').addEventListener('click', () => setDone(!analyse().ended));
   const closeHold = () => { clearInterval(state.holdTimer); state.pendingDrink = null; closeSheets(); };
   $('holdWater').addEventListener('click', () => { closeHold(); goTo('now'); logWater(); });
   $('holdDone').addEventListener('click', () => { closeHold(); setDone(true); });
@@ -1677,7 +1681,6 @@ function bind() {
     if (b) logFood(state.foodKind, Number(b.dataset.ago));
   });
   $('feelBtn').addEventListener('click', () => openSheet('feelSheet'));
-  $('homeBtn').addEventListener('click', openHomeSheet);
   $('checkinCard').addEventListener('click', e => {
     if (e.target.closest('[data-snooze]')) {
       const a = analyse();

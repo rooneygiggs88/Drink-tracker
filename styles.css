@@ -639,3 +639,30 @@ button.tile:active { transform: scale(.97); }
 .stop-line { padding: 9px 0; font-size: 15px; line-height: 1.4; border-top: 1px solid var(--line); }
 .stop-line:first-of-type { border-top: 0; }
 .stop-line b { color: #6fd39a; }
+
+/* ---------- Consolidated Now screen ---------- */
+.panel-sub { font-size: 15px; font-weight: 600; opacity: .8; margin-left: 6px; }
+.panel-next {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,.22);
+  font-size: 16px;
+  line-height: 1.35;
+}
+.panel-next b { color: #fff; }
+.quick { grid-template-columns: repeat(4, 1fr); }
+.quick-btn.urgent { background: var(--lvl-2); border-color: var(--lvl-2); }
+.quick-btn.urgent span { color: #fff; }
+.tiles.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.tiles.compact .tile { padding: 10px 10px 9px; border-left-width: 4px; border-radius: 14px; }
+.tiles.compact .tile-label { font-size: 11px; letter-spacing: .04em; }
+.tiles.compact .tile-value { font-size: 22px; margin-top: 3px; }
+.tiles.compact .tile-sub { font-size: 12px; }
+.card.guide { margin-top: 12px; }
+.brief-sec { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.brief-sec:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.brief-feel { font-size: 16px; font-weight: 700; margin-top: 4px; line-height: 1.35; }
+.brief-sec .feel-note { margin-top: 3px; }
+.brief-sec.stopnow { margin-left: -16px; margin-right: -16px; padding: 12px 16px 4px; background: linear-gradient(180deg, rgba(29,107,66,.2), transparent); border-top: 1px solid var(--lvl-0); }
+.brief-sec .nudge { border-top: 0; padding: 0; }
