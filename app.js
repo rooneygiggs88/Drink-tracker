@@ -1347,12 +1347,21 @@ function openHoldUp(drink, title, g) {
   openSheet('holdSheet');
 }
 
+// When the next drink happened (for ones you forgot to log). Resets to "now" after each log.
+function logTimeTs() {
+  if (state.logAt) return state.logAt;
+  return Date.now() - (state.logAgo || 0) * MIN;
+}
+function resetLogTime() { state.logAgo = 0; state.logAt = null; }
+
 function logDrink(drink, force) {
   const key = nightKey(Date.now());
   const soft = drink.cat === 'nolo';
+  const late = !!(state.logAgo || state.logAt);
   const before = analyse();
   const gBefore = guidance(before);
-  if (!force && !soft) {
+  // No speed bump for a drink you've already had (logging it late).
+  if (!force && !soft && !late) {
     const t = holdUpTitle(before, gBefore, drink);
     if (t) return openHoldUp(drink, t, gBefore);
   }
@@ -1371,14 +1380,16 @@ function logDrink(drink, force) {
     units: unitsOf(drink.ml, drink.abv),
     kcal: kcalOf(drink.cat, drink.ml, drink.abv),
     price: priceTonight(drink) != null ? priceTonight(drink) : null,
-    ts: Date.now(),
+    ts: Math.min(Date.now(), logTimeTs()),
   };
+  resetLogTime();
   state.log.push(entry);
   save.log();
   state.lastAdded = { type: 'drink', id: entry.id };
   const after = analyse();
   setMoment(after.key, after.n, detectMoments(before, gBefore, after, guidance(after), drink));
-  showToast(soft ? `🫧 ${drink.name}. Nice swap: counts as a spacer.` : drink.name + ' added', true);
+  const ago = Date.now() - entry.ts;
+  showToast(soft ? `🫧 ${drink.name}. Nice swap: counts as a spacer.` : drink.name + (ago > 2 * MIN ? ` added at ${fmtTime(entry.ts)}` : ' added'), true);
   goTo('now', true);
   if (!soft && !state.goals[key] && nightSummary(key).drinks.length === 1) openPlanSheet();
 }
@@ -1508,6 +1519,7 @@ function renderNow(a) {
   if (ruleAct) { $('nowAction').textContent = GUIDE_ACTIONS[ruleAct]; $('nowAction').dataset.guide = ruleAct; }
 
   renderMorningCard(a);
+  renderBackupCard(a);
   renderClearCard(a);
   renderCheckinCard(a);
 
@@ -1828,7 +1840,18 @@ function drinksForCat(cat) {
   return state.library.filter(d => d.cat === cat);
 }
 
+function renderWhen() {
+  const opts = [[0, 'Now'], [15, '15 min ago'], [30, '30 min ago'], [60, '1 hr ago']];
+  $('whenChips').innerHTML = opts.map(([m, l]) =>
+    `<button type="button" class="chip${!state.logAt && (state.logAgo || 0) === m ? ' active' : ''}" data-ago="${m}">${l}</button>`).join('') +
+    `<button type="button" class="chip${state.logAt ? ' active' : ''}" data-ago="pick">${state.logAt ? 'At ' + fmtTime(state.logAt) : 'Earlier…'}</button>`;
+  $('whenPick').hidden = !state.pickingTime;
+  $('whenNote').hidden = !(state.logAgo || state.logAt);
+  if (state.logAgo || state.logAt) $('whenNote').textContent = `Next drink logs at ${fmtTime(logTimeTs())}, then back to now.`;
+}
+
 function renderGrid() {
+  renderWhen();
   const drinks = drinksForCat(state.cat);
   $('grid').classList.toggle('editing', state.editing);
   $('grid').innerHTML =
@@ -1866,7 +1889,7 @@ function timelineRows(key, withDelete) {
       name = `${f.emoji} Feeling ${f.label.toLowerCase()}`; meta = `at ${fmtUnits(e.units)} units`; minor = true;
     }
     return `
-      <li class="${minor ? 'minor' : ''}">
+      <li class="${minor ? 'minor' : ''}${type === 'drink' && withDelete ? ' editable' : ''}"${type === 'drink' && withDelete ? ` data-edit="${e.id}"` : ''}>
         <span class="log-time">${fmtTime(e.ts)}</span>
         <span class="log-main"><div class="log-name">${name}</div><div class="log-meta">${meta}</div></span>
         ${right}
@@ -1964,6 +1987,8 @@ function renderHistory(a) {
   }).join('');
   $('historyEmpty').hidden = keys.length > 0;
 
+  const lb = state.settings.lastBackup;
+  $('lastBackup').textContent = lb ? `Last backup: ${fmtNight(nightKey(lb))}, ${fmtTime(lb)}` : 'Last backup: never';
   if (document.activeElement !== $('setAmber')) $('setAmber').value = state.settings.amber;
   if (document.activeElement !== $('setRed')) $('setRed').value = state.settings.red;
   $('setCheck').value = String(state.settings.checkEvery);
@@ -2217,6 +2242,45 @@ function setHome(hhmm) {
   render();
 }
 
+/* ---------------- Edit a logged drink ---------------- */
+
+function openEntrySheet(id) {
+  const e = state.log.find(x => x.id === id);
+  if (!e) return;
+  state.editEntry = id;
+  $('eTitle').textContent = `${e.name} · ${fmtTime(e.ts)}`;
+  $('eTime').value = fmtTime(e.ts);
+  const groups = CATS.map(c => {
+    const items = state.library.filter(d => d.cat === c.id);
+    if (!items.length) return '';
+    return `<optgroup label="${esc(c.label.replace(/^\W+\s*/, ''))}">` + items.map(d =>
+      `<option value="${esc(d.id)}"${d.id === e.drinkId ? ' selected' : ''}>${esc(d.name)} · ${esc(sizeLabel(d))}</option>`).join('') + '</optgroup>';
+  }).join('');
+  const known = state.library.some(d => d.id === e.drinkId);
+  $('eDrink').innerHTML = (known ? '' : `<option value="" selected>${esc(e.name)} (keep as is)</option>`) + groups;
+  openSheet('entrySheet');
+}
+
+function saveEntry() {
+  const e = state.log.find(x => x.id === state.editEntry);
+  if (!e) return closeSheets();
+  const key = nightKey(e.ts);
+  // Times before 06:00 belong to the small hours after this night's evening.
+  const hhmm = $('eTime').value;
+  if (hhmm) e.ts = Math.min(Date.now(), homeTimeToTs(key, hhmm));
+  const d = state.library.find(x => x.id === $('eDrink').value);
+  if (d && d.id !== e.drinkId) {
+    const price = atHomeTonight(key) ? homePriceOf(d) : d.price;
+    Object.assign(e, { drinkId: d.id, name: d.name, cat: d.cat, abv: d.abv, ml: d.ml, size: sizeLabel(d),
+      units: unitsOf(d.ml, d.abv), kcal: kcalOf(d.cat, d.ml, d.abv), price: price != null ? price : null });
+  }
+  save.log();
+  state.moment = null; store.set('moment', null);   // the old "that pint did X" no longer applies
+  closeSheets();
+  showToast(`Updated: ${e.name} at ${fmtTime(e.ts)}`, false);
+  render();
+}
+
 /* ---------------- Backup ---------------- */
 
 async function exportData() {
@@ -2227,8 +2291,14 @@ async function exportData() {
   }, null, 2);
   const name = 'drink-tracker-' + new Date().toISOString().slice(0, 10) + '.json';
   const file = new File([data], name, { type: 'application/json' });
+  const done = () => {
+    state.settings.lastBackup = Date.now();
+    save.settings();
+    showToast('💾 Backed up. Keep that file somewhere safe (iCloud Drive is ideal).', false);
+    render();
+  };
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'Drink Tracker backup' }); return; }
+    try { await navigator.share({ files: [file], title: 'Drink Tracker backup' }); return done(); }
     catch (e) { if (e.name === 'AbortError') return; }
   }
   const a = document.createElement('a');
@@ -2236,6 +2306,31 @@ async function exportData() {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  done();
+}
+
+// Weekly nudge to back up (never mid-night): iOS can clear website data when storage is tight.
+function backupDue(a) {
+  if (a.n && !a.ended) return false;
+  if (state.log.length < 5) return false;
+  const st = state.settings;
+  if (st.backupSnooze && Date.now() < st.backupSnooze) return false;
+  return !st.lastBackup || Date.now() - st.lastBackup > 7 * 24 * HOUR;
+}
+
+function renderBackupCard(a) {
+  const due = backupDue(a);
+  $('backupCard').hidden = !due;
+  if (!due) return;
+  const last = state.settings.lastBackup;
+  $('backupCard').innerHTML = `
+    <div class="prompt-title">💾 Back up your history</div>
+    <div class="prompt-sub">Last backup: <b>${last ? plural(Math.max(1, Math.round((Date.now() - last) / (24 * HOUR))), 'day') + ' ago' : 'never'}</b>.
+      Your data only lives on this phone, and iOS can clear it when storage gets tight. Save a copy to Files → iCloud Drive.</div>
+    <div class="backup-actions">
+      <button class="btn-primary" data-backup="now">Back up now</button>
+      <button class="prompt-skip" data-backup="later">Not now</button>
+    </div>`;
 }
 
 function importData(file) {
@@ -2461,6 +2556,8 @@ function bind() {
       if (confirm(`Remove ${label} (${fmtTime(item.ts)})?`)) removeItem(type, item.id);
       return;
     }
+    const ed = e.target.closest('[data-edit]');
+    if (ed) return openEntrySheet(ed.dataset.edit);
     const head = e.target.closest('.night-head');
     if (head) head.nextElementSibling.hidden = !head.nextElementSibling.hidden;
   };
@@ -2537,6 +2634,29 @@ function bind() {
 
   // Backup
   $('exportBtn').addEventListener('click', exportData);
+  $('backupCard').addEventListener('click', e => {
+    const b = e.target.closest('[data-backup]');
+    if (!b) return;
+    if (b.dataset.backup === 'now') exportData();
+    else { state.settings.backupSnooze = Date.now() + 3 * 24 * HOUR; save.settings(); render(); }
+  });
+  $('whenChips').addEventListener('click', e => {
+    const b = e.target.closest('[data-ago]');
+    if (!b) return;
+    if (b.dataset.ago === 'pick') { state.pickingTime = true; renderWhen(); $('whenTime').focus(); return; }
+    state.logAgo = Number(b.dataset.ago); state.logAt = null; state.pickingTime = false; renderWhen();
+  });
+  $('whenTime').addEventListener('change', e => {
+    if (!e.target.value) return;
+    const ts = homeTimeToTs(nightKey(Date.now()), e.target.value);
+    if (ts > Date.now()) { showToast("That's in the future. Pick when you had it.", false); return; }
+    state.logAt = ts; state.logAgo = 0; state.pickingTime = false; renderWhen();
+  });
+  $('eSave').addEventListener('click', saveEntry);
+  $('eDelete').addEventListener('click', () => {
+    const e = state.log.find(x => x.id === state.editEntry);
+    if (e && confirm(`Remove ${e.name} (${fmtTime(e.ts)})?`)) { closeSheets(); removeItem('drink', e.id); }
+  });
   $('importBtn').addEventListener('click', () => $('importFile').click());
   $('importFile').addEventListener('change', e => {
     if (e.target.files[0]) importData(e.target.files[0]);

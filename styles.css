@@ -891,3 +891,19 @@ input[type=time] { -webkit-appearance: none; appearance: none; min-width: 0; max
 /* Header: fixed rather than sticky, which iOS composites at full resolution (crisp text) */
 .app-header { position: fixed; left: 0; right: 0; top: 0; }
 body { padding-top: calc(var(--safe-top) + var(--hdr-h)); }
+
+/* "When?" for late logging (not .when: that's the food sheet's grid) */
+.log-when { margin-bottom: 12px; padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.when-label { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; margin-bottom: 8px; }
+.log-when .chip { padding: 8px 11px; font-size: 14px; }
+.log-when .aim-note { text-align: left; color: var(--accent); margin-top: 8px; }
+
+/* Editable rows */
+.log li.editable { cursor: pointer; }
+.log li.editable:active { background: var(--surface); }
+.select-input { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 17px; -webkit-appearance: none; appearance: none; }
+
+/* Backup */
+.backup-actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.backup-actions .btn-primary { padding: 12px 18px; }
+.hint.left { text-align: left; margin: 0 4px 10px; }

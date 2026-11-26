@@ -51,6 +51,7 @@
 
       <div class="now-body">
         <div class="card prompt" id="morningCard" hidden></div>
+        <div class="card prompt" id="backupCard" hidden></div>
         <div class="card clear" id="clearCard" hidden>
           <div class="tile-label">🫀 Back to zero in</div>
           <div class="clear-clock" id="clearClock">00:00:00</div>
@@ -77,6 +78,12 @@
 
     <!-- ADD -->
     <section class="view" id="view-add" hidden>
+      <div class="log-when">
+        <span class="when-label">When?</span>
+        <div class="chips" id="whenChips"></div>
+        <div id="whenPick" hidden><input id="whenTime" class="time-input" type="time"></div>
+        <p class="aim-note" id="whenNote" hidden></p>
+      </div>
       <div class="cats" id="cats"></div>
       <div class="grid" id="grid"></div>
       <p class="hint" id="priceNote" hidden>🏠 At home tonight: showing shop prices. Edit a drink to set what you actually paid.</p>
@@ -120,6 +127,7 @@
       </div>
 
       <h3 class="section-title">Backup</h3>
+      <p class="hint left" id="lastBackup"></p>
       <div class="data-tools">
         <button class="btn-ghost" id="exportBtn">Export backup</button>
         <button class="btn-ghost" id="importBtn">Import backup</button>
@@ -244,6 +252,22 @@
       <div class="sheet-actions">
         <button type="button" class="btn-primary" id="mSave">Save check-in</button>
         <button type="button" class="btn-secondary" id="mLater">Later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit a logged drink -->
+  <div class="sheet-backdrop" id="entrySheet" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 id="eTitle">Edit drink</h2>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
+      </div>
+      <label class="field"><span>Time</span><input id="eTime" class="time-input" type="time"></label>
+      <label class="field"><span>What it actually was</span><select id="eDrink" class="select-input"></select></label>
+      <div class="sheet-actions">
+        <button type="button" class="btn-primary" id="eSave">Save</button>
+        <button type="button" class="btn-danger" id="eDelete">Remove this drink</button>
       </div>
     </div>
   </div>
