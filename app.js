@@ -2544,19 +2544,65 @@ document.addEventListener('contextmenu', e => { if (!e.target.closest('input, te
   });
 })();
 
-// Updates: install quietly, reload once when the new version takes over,
-// and check again whenever the app comes back to the foreground.
+// Updates, on your terms: a new version installs in the background, then a banner
+// offers it. Nothing reloads until you tap Update.
+const updates = { reg: null, waiting: null, refreshing: false };
+
+function showUpdateBanner(worker) {
+  updates.waiting = worker;
+  $('updateBanner').hidden = false;
+}
+
+function applyUpdate() {
+  if (!updates.waiting) return;
+  $('updateBtn').textContent = 'Updating…';
+  updates.waiting.postMessage('SKIP_WAITING');
+}
+
+function watchForUpdates(reg) {
+  updates.reg = reg;
+  if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg.waiting);
+  reg.addEventListener('updatefound', () => {
+    const nw = reg.installing;
+    if (!nw) return;
+    nw.addEventListener('statechange', () => {
+      // "installed" with an existing controller = a new version is ready (not a first install).
+      if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdateBanner(nw);
+    });
+  });
+}
+
+function checkForUpdates(manual) {
+  if (!updates.reg) { if (manual) showToast('Updates work once the app is installed and online.', false); return; }
+  updates.reg.update().then(() => {
+    if (!manual) return;
+    setTimeout(() => { if ($('updateBanner').hidden) showToast("✅ You're on the latest version.", false); }, 1500);
+  }).catch(() => { if (manual) showToast("Couldn't check: no signal?", false); });
+}
+
+function showVersion() {
+  const ctl = navigator.serviceWorker && navigator.serviceWorker.controller;
+  if (!ctl) { $('appVersion').textContent = 'not installed yet'; return; }
+  const ch = new MessageChannel();
+  ch.port1.onmessage = e => { $('appVersion').textContent = 'v' + e.data; };
+  ctl.postMessage('GET_VERSION', [ch.port2]);
+}
+
 if ('serviceWorker' in navigator) {
-  const hadController = !!navigator.serviceWorker.controller;
-  let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || reloading) return;
-    reloading = true;
+    if (updates.refreshing) return;
+    updates.refreshing = true;
     window.location.reload();
   });
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      watchForUpdates(reg);
+      showVersion();
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdates(false); });
+      setInterval(() => checkForUpdates(false), 30 * MIN);
     }).catch(() => {});
   });
 }
+$('updateBtn').addEventListener('click', applyUpdate);
+$('updateLater').addEventListener('click', () => { $('updateBanner').hidden = true; });
+$('checkUpdates').addEventListener('click', () => checkForUpdates(true));

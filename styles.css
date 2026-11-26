@@ -849,3 +849,25 @@ button.tile:active { transform: scale(.97); }
   margin-top: 10px; width: 100%; padding: 12px 14px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 17px;
 }
+
+/* ---------- Update banner ---------- */
+.update-banner {
+  position: fixed;
+  left: 12px; right: 12px;
+  top: calc(var(--safe-top) + var(--hdr-h) + 8px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 16px;
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.5);
+  animation: moment-in .4s ease;
+}
+.update-banner > span { flex: 1; }
+.update-btn { padding: 10px 16px; border-radius: 12px; background: var(--accent-ink); color: var(--accent); font-weight: 900; }
+.update-later { padding: 6px 8px; font-size: 16px; color: var(--accent-ink); opacity: .7; }
+#checkUpdates { width: 100%; margin-top: 8px; }

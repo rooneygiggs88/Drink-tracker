@@ -21,4 +21,5 @@ Everything stays on the phone (localStorage); no accounts, no server.
 - Static files on GitHub Pages; no build step.
 - A "night" runs 06:00 → 06:00 by the wall clock (safe across clock changes).
 - Units = ml × ABV% ÷ 1000. Body clears ~1 unit/hour (rule of thumb, never a driving guide).
-- When changing app files, bump `CACHE` in `sw.js` so phones pick up the update.
+- When changing app files, bump `VERSION` in `sw.js`. Phones then show a "New version available" banner;
+  nothing updates until it's tapped.

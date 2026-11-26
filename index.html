@@ -113,6 +113,12 @@
         <p class="setting-note">Amber and red are for "just tracking" nights; a plan sets its own. Units drunk in one night. Pace also turns things amber if you're going faster than one drink an hour.</p>
       </div>
 
+      <h3 class="section-title">App</h3>
+      <div class="card settings">
+        <div class="setting"><span>📦 Version</span><b id="appVersion">…</b></div>
+        <button class="btn-ghost" id="checkUpdates">Check for updates</button>
+      </div>
+
       <h3 class="section-title">Backup</h3>
       <div class="data-tools">
         <button class="btn-ghost" id="exportBtn">Export backup</button>
@@ -121,6 +127,12 @@
       </div>
     </section>
   </main>
+
+  <div class="update-banner" id="updateBanner" hidden>
+    <span>✨ <b>New version available</b></span>
+    <button class="update-btn" id="updateBtn">Update</button>
+    <button class="update-later" id="updateLater" aria-label="Later">✕</button>
+  </div>
 
   <div class="install-tip" id="installTip" hidden>
     <div><b>Add it to your Home Screen</b><br>Tap <span class="share-glyph">Share</span> then <b>Add to Home Screen</b>. It opens full-screen, works offline and keeps your data.</div>
