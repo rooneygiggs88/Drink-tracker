@@ -875,3 +875,7 @@ button.tile:active { transform: scale(.97); }
 /* Update banner lives at the bottom, above the tab bar (clear of the pinned tally) */
 .update-banner { top: auto; bottom: calc(var(--tabs-h) + var(--safe-bottom) + 12px); }
 body.has-update .toast, body.has-update .install-tip { bottom: calc(var(--tabs-h) + var(--safe-bottom) + 80px); }
+
+/* iOS renders text inside a sticky element with backdrop-filter from a low-res snapshot
+   (blurry header). Solid background instead: identical look on this theme, crisp text. */
+.app-header { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }

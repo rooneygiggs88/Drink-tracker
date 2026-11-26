@@ -1,6 +1,6 @@
 // Drink Tracker service worker.
 // Bump VERSION whenever any app file changes: phones see "New version available".
-const VERSION = 36;
+const VERSION = 37;
 const CACHE = 'drink-tracker-v' + VERSION;
 const ASSETS = [
   './',
