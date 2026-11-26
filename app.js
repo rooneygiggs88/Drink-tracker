@@ -1116,7 +1116,7 @@ function renderNow(a) {
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
-  $('nowSub').textContent = n ? (a.ended ? `${fmtTime(a.first)}–${fmtTime(a.ended)} · ${fmtDur(a.elapsed)}` : `out ${fmtDur(a.elapsed)} · since ${fmtTime(a.first)}`) : '';
+  $('nowSub').textContent = n ? (a.ended ? `${fmtTime(a.first)}–${fmtTime(a.ended)} · ${fmtDur(a.elapsed)}` : `· out ${fmtDur(a.elapsed)}`) : '';
   $('nowPlan').innerHTML = G
     ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}`
     : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
@@ -1140,7 +1140,7 @@ function renderNow(a) {
   if (n) {
     if (!a.ended) tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
       a.avgGap ? 'per pint' : "first one's free", a.paceLevel));
-    if (a.inSystem > 0.05 && !a.ended) tiles.push(tile('🫀', 'Sober at', fmtTime(a.soberAt), `≈${fmtPints(pintEq(a.inSystem))} pints in you`));
+    if (a.inSystem > 0.05 && !a.ended) tiles.push(tile('🫀', 'Sober at', fmtTime(a.soberAt), `≈${fmtPints(pintEq(a.inSystem))} pints left`));
     tiles.push(tile('💷', 'Spent', fmtMoney(s.spend).replace(/\.00$/, ''), s.unpriced ? `+${s.unpriced} unpriced` : `${s.kcal.toLocaleString('en-GB')} kcal`));
     const lf = a.lastFood;
     tiles.push(tile('🍔', 'Food', lf ? fmtAgo(a.now - lf.ts).replace(' ago', '') : 'None',
