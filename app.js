@@ -14,6 +14,7 @@ const DB_VERSION = 6;
 const CATS = [
   { id: 'pints',     label: 'Pints' },
   { id: 'halves',    label: 'Halves' },
+  { id: 'nolo',      label: '🫧 0.0 & soft' },
   { id: 'bottles',   label: 'Bottles & cans' },
   { id: 'wine',      label: 'Wine' },
   { id: 'shots',     label: 'Shots' },
@@ -57,10 +58,19 @@ const GOALS = {
   quick:  { emoji: '🍻', label: 'Couple after work', sub: 'In, a couple, home',     target: 2, tone: 'light' },
   home:   { emoji: '🏠', label: 'Night in',          sub: 'A few on the sofa',      target: 3, tone: 'light' },
   social: { emoji: '🍽️', label: 'Dinner / catch-up', sub: 'Sociable, not messy',    target: 4, tone: 'mid' },
+  match:  { emoji: '⚽', label: 'Matchday',          sub: 'Long session, pace it',  target: 5, tone: 'big' },
   big:    { emoji: '🎉', label: 'Big night out',     sub: 'Going for it, safely',   target: 8, tone: 'big' },
 };
 
-const DEFAULT_SETTINGS = { amber: 6, red: 10, checkEvery: 1 };   // checkEvery: ask how you feel every N drinks (0 = never)
+// "When I hit my plan, I'll…" An if-then plan made while sober (implementation intention).
+const RULES = {
+  nolo:   { emoji: '🫧', label: 'switch to a 0.0' },
+  water:  { emoji: '💧', label: 'have a water' },
+  halves: { emoji: '🍺', label: 'go to halves' },
+  home:   { emoji: '🏠', label: 'head home' },
+};
+
+const DEFAULT_SETTINGS = { amber: 6, red: 10, checkEvery: 1, weekly: 14, kcalDay: 0 };   // checkEvery: ask how you feel every N drinks (0 = never)
 const PINT_UNITS = 2.4;
 
 // ABVs are typical UK figures; prices are rough UK pub averages.
@@ -123,6 +133,17 @@ const DEFAULT_LIBRARY = [
   { id: 'c-mojito',      cat: 'cocktails', name: 'Mojito',           abv: 9,   ml: 200, size: 'Cocktail', price: 10.50 },
   { id: 'c-margarita',   cat: 'cocktails', name: 'Margarita',        abv: 20,  ml: 100, size: 'Cocktail', price: 10.50 },
   { id: 'c-aperol',      cat: 'cocktails', name: 'Aperol spritz',    abv: 5.6, ml: 250, size: 'Cocktail', price: 9.50 },
+
+  // Alcohol-free & soft: count as a spacer (like water), not as a drink
+  { id: 'n-guinness',    cat: 'nolo', name: 'Guinness 0.0',      abv: 0,   ml: 568, price: 5.20 },
+  { id: 'n-peroni',      cat: 'nolo', name: 'Peroni 0.0',        abv: 0,   ml: 330, price: 4.50 },
+  { id: 'n-lucky',       cat: 'nolo', name: 'Lucky Saint',       abv: 0.5, ml: 568, price: 6.00 },
+  { id: 'n-moretti',     cat: 'nolo', name: 'Moretti Zero',      abv: 0.05, ml: 330, price: 4.50 },
+  { id: 'n-stella',      cat: 'nolo', name: 'Stella 0.0',        abv: 0,   ml: 330, price: 4.20 },
+  { id: 'n-heineken',    cat: 'nolo', name: 'Heineken 0.0',      abv: 0,   ml: 330, price: 4.20 },
+  { id: 'n-madri',       cat: 'nolo', name: 'Madrí 0.0',         abv: 0,   ml: 330, price: 4.50 },
+  { id: 'n-limesoda',    cat: 'nolo', name: 'Lime & soda',       abv: 0,   ml: 300, price: 1.50 },
+  { id: 'n-coke',        cat: 'nolo', name: 'Coke / soft drink', abv: 0,   ml: 330, price: 3.20 },
 ];
 
 // Every pint also comes as a half (pubs charge a bit over half price).
@@ -134,6 +155,15 @@ const FOOD_KINDS = {
   snack: { emoji: '🍟', label: 'Snack', lasts: 2 },   // hours it meaningfully lines the stomach
   meal:  { emoji: '🍽️', label: 'Meal',  lasts: 5 },
 };
+
+// The alcohol-free version of what you're drinking, for the "swap" suggestion.
+const SWAPS = [[/guinness/i, 'n-guinness'], [/peroni/i, 'n-peroni'], [/moretti/i, 'n-moretti'], [/stella/i, 'n-stella'],
+  [/heineken/i, 'n-heineken'], [/madr/i, 'n-madri']];
+function swapFor(name) {
+  const hit = SWAPS.find(([rx]) => rx.test(name || ''));
+  const id = hit ? hit[1] : 'n-lucky';
+  return state.library.find(d => d.id === id) || state.library.find(d => d.cat === 'nolo') || null;
+}
 
 /* ---------------- Storage ---------------- */
 
@@ -174,6 +204,7 @@ function loadData() {
   state.water = store.get('water', []);
   state.food = store.get('food', []);
   state.snooze = store.get('snooze', null);
+  state.moment = store.get('moment', null);
   state.checkins = store.get('checkins', []);
   state.mornings = store.get('mornings', {});
   state.plans = store.get('plans', {});
@@ -237,7 +268,7 @@ const plural = (n, word, many) => n + ' ' + (n === 1 ? word : (many || word + 's
 
 function kcalOf(cat, ml, abv) {
   const base = unitsOf(ml, abv) * KCAL_PER_UNIT;
-  const extra = { pints: ml * 0.14, halves: ml * 0.14, bottles: ml * 0.14, wine: ml * 0.2, shots: 15, spirits: 80, cocktails: 130 }[cat] || 0;
+  const extra = { nolo: ml * 0.2, pints: ml * 0.14, halves: ml * 0.14, bottles: ml * 0.14, wine: ml * 0.2, shots: 15, spirits: 80, cocktails: 130 }[cat] || 0;
   return Math.round(base + extra);
 }
 
@@ -251,8 +282,11 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Which night a moment belongs to. Uses the clock on the wall (before 06:00 = last night),
+// not "6 hours ago", so the clocks-change weekends don't shift a night by an hour.
 function nightKey(ts) {
-  const d = new Date(ts - NIGHT_ROLLOVER_HOUR * HOUR);
+  const d = new Date(ts);
+  if (d.getHours() < NIGHT_ROLLOVER_HOUR) d.setDate(d.getDate() - 1);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
@@ -280,6 +314,12 @@ function fmtWhen(ts) {
   const days = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / (24 * HOUR));
   if (days <= 0) return fmtTime(ts);
   if (days === 1) return 'tomorrow ' + fmtTime(ts);
+  return d.toLocaleDateString('en-GB', { weekday: 'short' }) + ' ' + fmtTime(ts);
+}
+
+function fmtShortWhen(ts) {
+  const d = new Date(ts), now = new Date();
+  if (d.toDateString() === now.toDateString()) return fmtTime(ts);
   return d.toLocaleDateString('en-GB', { weekday: 'short' }) + ' ' + fmtTime(ts);
 }
 
@@ -351,15 +391,18 @@ function personalDrunkPoint(excludeKey, fed) {
 }
 
 function nightSummary(key) {
-  const drinks = inNight(state.log, key);
+  const all = inNight(state.log, key);
+  const drinks = all.filter(e => e.cat !== 'nolo');
+  const softs = all.filter(e => e.cat === 'nolo');      // alcohol-free: a spacer, not a drink
   const water = inNight(state.water, key);
   const food = inNight(state.food, key);
   const checkins = inNight(state.checkins, key);
   return {
-    key, drinks, water, food, checkins,
+    key, drinks, softs, water, food, checkins,
+    spacers: water.length + softs.length,
     units: sum(drinks, e => e.units),
     kcal: sum(drinks, e => e.kcal),
-    spend: sum(drinks, e => e.price),
+    spend: sum(all, e => e.price),
     unpriced: drinks.filter(e => e.price == null).length,
     peakFeeling: checkins.length ? Math.max(...checkins.map(c => c.level)) : null,
   };
@@ -397,6 +440,10 @@ function analyse() {
   let paceLevel = 0;
   if (lastHourPe >= 2.95) paceLevel = 2;
   else if (burst90 > 5.5 || (perPintAfterFirst && perPintAfterFirst < 35 * MIN)) paceLevel = 1;
+  // Two drinks back to back (a round landing on a full glass) counts as quick, even early on.
+  const lastGap = n >= 2 ? last - s.drinks[n - 2].ts : null;
+  if (!paceLevel && lastGap != null && lastGap < 20 * MIN * Math.max(0.5, pintEq(s.drinks[n - 2].units))) paceLevel = 1;
+  const pacePerPint = perPintAfterFirst || avgGap;
 
   const goal = state.goals[key] && GOALS[state.goals[key].type] ? state.goals[key] : null;
   const lim = goalLimits(goal);
@@ -408,7 +455,7 @@ function analyse() {
   const inSystem = unitsInSystem(state.log.filter(e => now - e.ts < 48 * HOUR), now);
   const soberAt = inSystem > 0 ? now + (inSystem / CLEAR_RATE) * HOUR : null;
 
-  const lastWater = s.water.length ? s.water[s.water.length - 1].ts : 0;
+  const lastWater = Math.max(0, ...s.water.map(w => w.ts), ...s.softs.map(w => w.ts));
   const drinksSinceWater = s.drinks.filter(e => e.ts > lastWater).length;
 
   const lastCheckin = s.checkins.length ? s.checkins[s.checkins.length - 1] : null;
@@ -425,7 +472,7 @@ function analyse() {
   const drunkPoint = matched ? { ...matched, fed: !!fed } : personalDrunkPoint(key);
 
   return { now, key, s, n, first, last, elapsed, lastHour, avgGap, paceLevel, uLevel, level,
-           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim, pe, town, leaveAt };
+           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim, pe, town, leaveAt, pacePerPint, lastGap };
 }
 
 // Plans count in pint-equivalents (a half = ½, a large wine ≈ 1¼, a shot ≈ ⅓).
@@ -563,7 +610,7 @@ const LINES = {
     'Good time to switch to halves.',
   ],
   bigAmber: [
-    "Big night, fair enough. Pace it, it's a long one.",
+    "Long session, fair enough. Pace it, there's a way to go.",
     "Big one, but there's a long way to go. Pace.",
     'Halfway-ish. Water, food, then carry on.',
     'Marathon, not a sprint.',
@@ -579,8 +626,8 @@ const LINES = {
     '≈{pe} pints. Last one, then call it.',
   ],
   bigHit: [
-    "You've hit your big-night number. Make this the last.",
-    '{t} pints: big night achieved. Last one.',
+    "You've hit your number for tonight. Make this the last.",
+    "{t} pints: that's the plan done. Last one.",
     "That's the big night done. Finish this and get home.",
   ],
   atTipping: [
@@ -599,7 +646,7 @@ const LINES = {
     'No more. Water, then get yourself home safe.',
   ],
   noTrain: [
-    'London night: check your last train now.',
+    'Night in town: check your last train now.',
     "What time's your last train? Sort it while you can still read a timetable.",
     'Before the next one: look up your last train home.',
   ],
@@ -614,7 +661,7 @@ const LINES = {
     'Go now and you make the {home}. Stay and you don\'t.',
   ],
   missedTrain: [
-    "You've missed the window for the {home}. Station now, or it's a £100+ cab.",
+    "You've missed the window for the {home}. Station now, or it's a long, expensive cab.",
     "Last train's gone or going. Sort a safe way home now.",
     "That was the {home}. Get home safely: night bus, cab, or a mate's sofa.",
   ],
@@ -766,6 +813,7 @@ function personalHistory(units, excludeKey) {
 // The positive version, in plain terms: what stopping now saves, versus one more.
 const TOMORROW_LABEL = ['a normal day', 'an easy-gym day', 'a bad morning', 'a lost day', 'a two-day hangover'];
 
+// Where you stand: what's already locked in (red), what's at stake (amber), what stopping saves (green).
 function stopNow(a, g) {
   const { s, n } = a;
   const u = s.units;
@@ -774,7 +822,7 @@ function stopNow(a, g) {
   const tmr = keyToDate(a.key); tmr.setDate(tmr.getDate() + 1);
   const day2 = new Date(tmr); day2.setDate(day2.getDate() + 1);
   const day2Name = day2.toLocaleDateString('en-GB', { weekday: 'long' });
-  const recentWater = s.water.some(w => a.now - w.ts < 90 * MIN);
+  const recentWater = s.water.some(w => a.now - w.ts < 90 * MIN) || s.softs.some(w => a.now - w.ts < 90 * MIN);
   const careMissing = !recentWater || !a.fed;
   const zero = a.soberAt || a.now;
   // When you'll feel OK: never earlier than the level implies (a "bad morning" isn't over by 9am).
@@ -789,7 +837,41 @@ function stopNow(a, g) {
   const okCared = okBy(now.tier, zero, true);
   const okNext = okBy(next.tier, zero + (more / CLEAR_RATE) * HOUR, !careMissing);
   const care = [!recentWater && 'water', !a.fed && 'food'].filter(Boolean).join(' and ');
+  const why = (state.goals[a.key] || {}).why;
+  const eight = new Date(tmr); eight.setHours(8, 0, 0, 0);
+  const at8 = a.inSystem - Math.max(0, (eight - a.now) / HOUR) * CLEAR_RATE;
 
+  const locked = [], risk = [], save = [];
+
+  // 🔴 Already locked in: honest about what can't be undone.
+  if (now.tier >= 2) locked.push([now.tier >= 3 ? 2 : 1, [, , `${now.day} morning's going to be rough whatever happens now.`,
+    `${now.day} is already mostly a write-off.`, `This is already a two-day hangover.`][now.tier]]);
+  if (g.overPlan) { const ov = a.pe - a.goal.target;
+    locked.push([GOALS[a.goal.type].tone === 'light' ? 2 : 1, `≈${fmtPints(ov)} ${ov < 1.25 ? 'pint' : 'pints'} over your plan of ${a.goal.target}.`]); }
+  if (u >= 4 && now.tier <= 2) locked.push([1, "Tonight's sleep is already taking a hit."]);
+  if (a.goal && a.goal.work && at8 > 0.3) locked.push([2, "You'll still have alcohol in you at 8am, whatever you do now. Don't drive in."]);
+  if (g.missed) locked.push([2, `Missed the ${fmtTime(a.home)}. Get home safely: that's the job now.`]);
+  const shots = s.drinks.filter(e => e.cat === 'shots').length;
+  if (shots >= 2) locked.push([1, `${shots} shots in.`]);
+  if (s.spend >= 40) locked.push([1, `${fmtMoney(s.spend)} spent.`]);
+  if (why && now.tier >= 3) locked.push([2, `"${esc(why)}" is probably off.`]);
+
+  // 🟠 At stake: what the next one costs.
+  const nowFeel = fmtFeelTime(careMissing ? okPlain : okCared), nextFeel = fmtFeelTime(okNext);
+  if (a.town && a.home && !g.missed && a.now + 30 * MIN > a.leaveAt) risk.push([2, `<b>One more</b> and you miss the <b>${fmtTime(a.home)}</b>. That's the real cost tonight.`]);
+  else if (next.tier > now.tier) risk.push([2, `<b>One more pint</b> turns this into ${TOMORROW_LABEL[next.tier]}${nextFeel !== nowFeel ? `: OK by <b>${nextFeel}</b> instead` : ''}.`]);
+  else if (nextFeel !== nowFeel) risk.push([1, `<b>One more pint</b> pushes feeling OK back to <b>${nextFeel}</b>.`]);
+  else risk.push([1, "<b>One more pint</b>: you'd probably get away with it. It's the one after that starts costing you."]);
+  if (why && now.tier === 2) risk.push([1, `"${esc(why)}": doable if you stop now and hydrate.`]);
+  if (why && now.tier <= 1 && next.tier >= 2) risk.push([1, `"${esc(why)}" is still on, but the next one puts it at risk.`]);
+  const ph = personalHistory(u, a.key);
+  if (ph) {
+    let t = `📓 After nights around ≈${fmtPints(pintEq(u))} pints you woke up <b>${MORNINGS[ph.top].label}</b> ${ph.topCount} of ${ph.n} times.`;
+    if (ph.slept >= 2 && ph.badSleep * 2 >= ph.slept) t += ` Sleep was broken ${ph.badSleep} of ${ph.slept}.`;
+    risk.push([ph.top >= 2 ? 1 : 0, t]);
+  }
+
+  // 🟢 If you stop now: what's still yours.
   const headline = [
     `Stop now and ${now.day}'s a normal day. Gym's on.`,
     `Stop now and there's still time to save ${now.day}'s gym session.`,
@@ -797,30 +879,13 @@ function stopNow(a, g) {
     `Stop now and you'll lose ${now.day} morning, not the whole day.`,
     `Damage limitation: stop now, water, food, bed. Back to normal by ${day2Name}.`,
   ][now.tier];
-
-  const lines = [];
-  // When you'll feel OK
-  if (now.tier === 0) lines.push(`😌 You'll wake up fine.`);
+  if (now.tier === 0) save.push("😌 You'll wake up fine.");
   else if (careMissing && fmtFeelTime(okCared) !== fmtFeelTime(okPlain))
-    lines.push(`😌 Feel OK by <b>${fmtFeelTime(okCared)}</b> with ${care} now. Skip it: <b>${fmtFeelTime(okPlain)}</b>.`);
-  else lines.push(`😌 Feel OK by <b>${fmtFeelTime(careMissing ? okPlain : okCared)}</b>.`);
+    save.push(`😌 Feel OK by <b>${fmtFeelTime(okCared)}</b> with ${care} now. Skip it: <b>${fmtFeelTime(okPlain)}</b>.`);
+  else save.push(`😌 Feel OK by <b>${nowFeel}</b>.`);
+  if (recoveryFactor()) save[0] += ' <span class="feel-note">(adjusted to your mornings)</span>';
+  if (why && now.tier <= 1) save.push(`🎯 "${esc(why)}": still on${now.tier === 1 ? ', keep it easy' : ''}.`);
 
-  // What one more costs
-  const nowFeel = fmtFeelTime(careMissing ? okPlain : okCared), nextFeel = fmtFeelTime(okNext);
-  if (a.town && a.home && !g.missed && a.now + 30 * MIN > a.leaveAt) lines.push(`🍺 <b>One more pint</b> and you miss the <b>${fmtTime(a.home)}</b>. That's the real cost tonight.`);
-  else if (next.tier > now.tier) lines.push(`🍺 <b>One more pint</b> turns this into ${TOMORROW_LABEL[next.tier]}${nextFeel !== nowFeel ? `: OK by <b>${nextFeel}</b> instead` : ''}.`);
-  else if (nextFeel !== nowFeel) lines.push(`🍺 <b>One more pint</b> pushes feeling OK back to <b>${nextFeel}</b>.`);
-  else lines.push(`🍺 <b>One more pint</b>: you'd probably get away with it. It's the one after that starts costing you.`);
-
-  const ph = personalHistory(u, a.key);
-  if (ph) {
-    let t = `📓 <b>Your history:</b> after nights around ≈${fmtPints(pintEq(u))} pints you woke up <b>${MORNINGS[ph.top].label}</b> ${ph.topCount} of ${ph.n} times.`;
-    if (ph.slept >= 2 && ph.badSleep * 2 >= ph.slept) t += ` Sleep was broken ${ph.badSleep} of ${ph.slept}.`;
-    lines.push(t);
-  }
-  if (recoveryFactor()) lines[0] += ' <span class="feel-note">(adjusted to your mornings)</span>';
-
-  // Gym and work, in plain terms
   let gymLine = `🏋️ ${now.day}'s gym: <b>${['on', 'easy session only', 'not before the afternoon', 'off', `off until ${day2Name}`][now.tier]}</b>.`;
   const band = Math.max(2, u * 0.3);
   const trainedNights = Object.keys(state.mornings).filter(k => k !== a.key)
@@ -830,25 +895,28 @@ function stopNow(a, g) {
     const went = trainedNights.filter(x => x.m.did !== 'none');
     gymLine += ` <span class="feel-note">You trained after ${went.length} of ${trainedNights.length} nights like this${went.length ? `, and it felt rough ${went.filter(x => x.m.felt === 2).length} of ${went.length}` : ''}.</span>`;
   }
-  lines.push(gymLine);
-  if (a.goal && a.goal.work) {
-    const eight = new Date(tmr); eight.setHours(8, 0, 0, 0);
-    const at8 = a.inSystem - Math.max(0, (eight - a.now) / HOUR) * CLEAR_RATE;
-    let w = ['💼 Work: you\'ll be fine.', '💼 Work: fine, maybe a bit slow.', '💼 Work: functional, but a long morning.',
-             "💼 Work: you'll be struggling at your desk.", "💼 Work: honestly, it's going to be grim."][now.tier];
-    if (at8 > 0.3) w += ' You\'ll still have alcohol in you at 8am, so <b>don\'t drive in</b>.';
-    lines.push(w);
-  }
-
+  save.push(gymLine);
+  if (a.goal && a.goal.work) save.push(['💼 Work: you\'ll be fine.', '💼 Work: fine, maybe a bit slow.', '💼 Work: functional, but a long morning.',
+    "💼 Work: you'll be struggling at your desk.", "💼 Work: honestly, it's going to be grim."][now.tier]);
   const priced = s.drinks.filter(e => e.price != null);
-  if (priced.length) lines.push(`💷 You keep <b>${fmtMoney(sum(priced, e => e.price) / priced.length * 2)}</b>, what the next two would cost.`);
-  if (a.town) lines.push(g.leaveNow
+  if (priced.length) save.push(`💷 You keep <b>${fmtMoney(sum(priced, e => e.price) / priced.length * 2)}</b>, what the next two would cost.`);
+  if (a.town && !g.missed) save.push(g.leaveNow
     ? `🚆 Leave now and you still make the <b>${fmtTime(a.home)}</b>.`
-    : a.home && !g.missed
-    ? `🚆 Stop now and you make the <b>${fmtTime(a.home)}</b> easily.`
-    : a.home ? '🚆 Stop now and sort a safe way home while you still can.' : '🚆 Stop now, check your last train, and get it while it\'s easy.');
-  if (a.goal && GOALS[a.goal.type]) lines.push(g.overPlan ? "🎯 You're over the plan, but stopping here still counts." : '🎯 And the plan stays intact. ✅');
-  return { headline, lines };
+    : g.trainSoon ? `🚆 Finish up and you make the <b>${fmtTime(a.home)}</b>.`
+    : a.home ? `🚆 Stop now and you make the <b>${fmtTime(a.home)}</b> easily.` : "🚆 Stop now, check your last train, and get it while it's easy.");
+  if (a.goal && GOALS[a.goal.type] && !g.overPlan) save.push('🎯 And the plan stays intact. ✅');
+  else if (g.overPlan) save.push('🎯 Over the plan, but stopping here still counts.');
+  return { headline, locked, risk, save };
+}
+
+function renderStandHtml(sn, homeLine) {
+  const row = ([lvl, t]) => `<div class="stand-line s${lvl}">${t}</div>`;
+  let h = `<div class="tile-label">🧭 Where you stand</div>`;
+  if (sn.locked.length) h += `<div class="stand-sec"><div class="stand-head r">Already locked in</div>${sn.locked.map(row).join('')}</div>`;
+  h += `<div class="stand-sec"><div class="stand-head a">At stake</div>${sn.risk.map(row).join('')}</div>`;
+  h += `<div class="stand-sec g"><div class="stand-head g">If you stop now</div><div class="stop-head">${sn.headline}</div>` +
+    sn.save.map(t => `<div class="stop-line">${t}</div>`).join('') + homeLine + '</div>';
+  return h;
 }
 
 function nudgePool(a) {
@@ -865,18 +933,26 @@ function nudgePool(a) {
     }
     if (s.spend >= 30) pool.push({ icon: '💷', text: `A night like this every week is about <b>£${Math.round(s.spend * 52).toLocaleString('en-GB')}</b> a year.` });
   }
-  if (u >= 7) pool.push({ icon: '📊', text: `That's <b>${Math.round((u / 14) * 100)}%</b> of the weekly guideline (14 units) in one night.` });
+  const wkGoal = state.settings.weekly || 14;
+  if (u >= wkGoal / 2) pool.push({ icon: '📊', text: `That's <b>${Math.round((u / wkGoal) * 100)}%</b> of your weekly ${wkGoal === 14 ? 'guideline' : 'goal'} (${wkGoal} units) in one night.` });
+  if (state.settings.kcalDay && s.kcal >= 200) pool.push({ icon: '🔥', text: `${s.kcal.toLocaleString('en-GB')} kcal in drinks: <b>${Math.round(s.kcal / state.settings.kcalDay * 100)}%</b> of your daily calories, and none of it protein.` });
+  const why = (state.goals[a.key] || {}).why || '';
+  if (/run|race|event|swim|ride|bike|marathon|parkrun|tri/i.test(why) && n >= 1) pool.push({ icon: '🏁', text: 'Endurance tomorrow: alcohol dehydrates you and slows recovery. Water and some carbs before bed make a real difference.' });
+  if (s.softs.some(e => /coke|cola|soft/i.test(e.name))) pool.push({ icon: '🦷', text: 'Cola is hard on teeth. Lime & soda or water is the kinder spacer.' });
   if (s.kcal >= 400) pool.push({ icon: '🏃', text: `${s.kcal.toLocaleString('en-GB')} kcal. About <b>${Math.round(s.kcal / 65)} km</b> of running to burn off.` });
   if (u >= 4) pool.push({ icon: '😴', text: 'Above ~4 units, deep and REM sleep take the hit: you sleep longer and wake up worse.' });
-  if (n >= 3 && !s.water.length) pool.push({ icon: '💧', text: 'Alcohol makes you lose more fluid than you drink. One water per drink is the cheapest hangover cure going.' });
+  if (n >= 3 && !s.spacers) pool.push({ icon: '💧', text: 'Alcohol makes you lose more fluid than you drink. One water per drink is the cheapest hangover cure going.' });
   if (a.elapsed > 2 * HOUR && u > 3) pool.push({ icon: '🫀', text: `Your body's cleared about <b>${fmtPints(pintEq(Math.max(0, u - a.inSystem)))} pints' worth</b> so far. The other ≈${fmtPints(pintEq(a.inSystem))} are queued up for the night shift.` });
   if (a.town && n >= 2) {
-    pool.push({ icon: '🔋', text: 'Phone battery matters more in London: tickets, maps and getting hold of people all run on it.' });
+    pool.push({ icon: '🔋', text: 'Phone battery matters more in town: tickets, maps and getting hold of people all run on it.' });
     pool.push({ icon: '😴', text: "Don't fall asleep on the train. Set an alarm for your stop before you sit down." });
     pool.push({ icon: '👥', text: "Stick with your mates until you're at the station." });
-    pool.push({ icon: '🚕', text: "Missing the last train ≈ a £100+ cab. That's more than tonight's bar bill." });
+    pool.push({ icon: '🚕', text: "Missing the last train usually means a cab that costs more than tonight's bar bill." });
   }
   if (a.goal && a.goal.type === 'big' && n >= 3) pool.push({ icon: '🔋', text: "Phone battery, how you're getting home, who you're with. Sort those while you still care." });
+  if (a.paceLevel >= 1) pool.push({ icon: '🔁', text: 'In a round? Rounds pace everyone to the fastest drinker. Sit one out, or get yourself a half or a 0.0.' });
+  if (s.drinks.some(e => e.cat === 'shots')) pool.push({ icon: '🥃', text: 'Avoiding shots is the single most reliable way to stop a night going wrong. One is plenty.' });
+  if (s.softs.length) pool.push({ icon: '🫧', text: `${plural(s.softs.length, 'alcohol-free')} tonight. Every one is a drink you didn't have to recover from.` });
   if (u >= 10) pool.push({ icon: '🧠', text: "Past ~10 units, memory starts getting patchy. If you can't remember drink 6 tomorrow, that's why." });
   return pool;
 }
@@ -917,12 +993,16 @@ function guidance(a) {
       return { title: 'Still some of last night in you. Take it easy.',
         reasons: [`~<b>${fmtUnits(a.inSystem)} units</b> left, back to zero around <b>${fmtWhen(a.soberAt)}</b>.`], next: '', actions: ['water', 'food'] };
     }
+    const streak = planStreak();
     if (G) return { title: `${G.emoji} ${G.label}: ${plural(goal.target, 'pint')}. Enjoy them.`, next: '',
       actions: a.home ? ['food'] : ['home', 'food'], reasons: [
         `Amber from about pint ${Math.max(1, Math.ceil(A / PINT_UNITS))}, red after ${plural(goal.target, 'pint')}. Halves count as half.`,
-        a.home ? `Home by <b>${fmtTime(a.home)}</b>.` : 'Set a <b>home time</b> now, while you\'re sensible.',
+        goal.rule && RULES[goal.rule] ? `Your rule: when you hit ${goal.target}, you'll <b>${RULES[goal.rule].label}</b>.` : null,
+        goal.why ? `Tomorrow: <b>${esc(goal.why)}</b>. That's what you're protecting.` : null,
+        streak >= 2 ? `🔥 You've stuck to your plan <b>${streak} nights running</b>. Keep it going.` : null,
+        a.home ? `Home by <b>${fmtTime(a.home)}</b>.` : (a.town ? 'Check your <b>last train</b> now, while you\'re sensible.' : 'Set a <b>home time</b> now, while you\'re sensible.'),
         '<b>Eat before you start.</b> It slows everything down.',
-      ] };
+      ].filter(Boolean) };
     return { title: 'Nothing yet. Enjoy it.', next: '', actions: ['plan', ...(a.home ? [] : ['home']), 'food'], reasons: [
       '<b>Plan tonight</b>: a couple after work or a big one? The guidance steers to match.',
       'Set a <b>home time</b> now, while you\'re sensible.',
@@ -1039,6 +1119,13 @@ function guidance(a) {
   }
 
   // ---- What you can do about it ----
+  const rule = goal && RULES[goal.rule];
+  if (rule && (atPlan || overPlan) && !stop) {
+    reasons.unshift(`🤝 Your rule: <b>${rule.label}</b>.`);
+    if (goal.rule === 'nolo') actions.add('nolo');
+    if (goal.rule === 'halves') actions.add('halves');
+    if (goal.rule === 'home') actions.add('done');
+  }
   if (stop || lastOne) { actions.add('done'); actions.add('water'); }
   if (noFood || foodGone) actions.add('food');
   if (waterDue) actions.add('water');
@@ -1060,6 +1147,7 @@ function guidance(a) {
 }
 
 const GUIDE_ACTIONS = {
+  nolo:   '🫧 Get a 0.0',
   water:  '💧 Have a water',
   food:   '🍔 Log food',
   halves: '🍺 Switch to halves',
@@ -1069,6 +1157,74 @@ const GUIDE_ACTIONS = {
   done:   "🛑 I'm done for the night",
   undone: '↩︎ Not done after all',
 };
+
+// Nights in a row (most recent first) you finished within your plan. Tonight only counts once you're done.
+function planStreak() {
+  const tonight = nightKey(Date.now());
+  const keys = Object.keys(state.goals).filter(k => GOALS[(state.goals[k] || {}).type]).sort().reverse();
+  let streak = 0;
+  for (const k of keys) {
+    if (k === tonight && !state.ended[k]) continue;
+    if (pintEq(nightSummary(k).units) <= state.goals[k].target + PLAN_SLACK) streak++;
+    else break;
+  }
+  return streak;
+}
+
+/* ---------------- Moments: what that drink just changed ---------------- */
+
+function weekUnits(key) {
+  const d = keyToDate(key);
+  const monday = new Date(d); monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return sum([...new Set(state.log.map(e => nightKey(e.ts)))].filter(k => keyToDate(k) >= monday && k <= key),
+    k => nightSummary(k).units);
+}
+
+// Compare before/after a drink and call out anything that just tipped over (most important first).
+function detectMoments(b, gb, a, ga, drink) {
+  const out = [];
+  const add = (p, lvl, text) => out.push({ p, lvl, text });
+  const G = a.goal ? GOALS[a.goal.type] : null;
+  const why = (state.goals[a.key] || {}).why;
+  const rule = a.goal && RULES[a.goal.rule];
+
+  if (drink.cat === 'nolo') { add(1, 0, '🫧 Good swap. That\'s a spacer, and it buys you time.'); return out; }
+
+  if (/j[äa]ger|red bull|energy/i.test(drink.name)) add(2, 1, '⚡ Jägerbomb: the Red Bull masks how drunk you feel. You\'re drunker than you think.');
+  const shots = a.s.drinks.filter(e => e.cat === 'shots').length;
+  if (drink.cat === 'shots') shots >= 2
+    ? add(3, 2, `🥃 That's ${shots} shots. Shots are where nights go wrong: they land fast and all at once.`)
+    : add(6, 1, '🥃 Shots are where nights tip. Make it the only one.');
+
+  const tb = tomorrowTier(b, b.s.units).tier, ta = tomorrowTier(a, a.s.units).tier;
+  if (ta > tb) add(1, ta >= 3 ? 2 : 1, `🌅 That one turned tomorrow into ${TOMORROW_LABEL[ta]}.` +
+    (why && ta >= 2 ? ` "${esc(why)}" is ${ta >= 3 ? 'probably off' : 'now at risk'}.` : ''));
+
+  if (a.level > b.level && b.n) a.level === 2
+    ? add(2, 2, '🔴 That tipped you into the red.')
+    : add(4, 1, '🟠 You\'re into amber. Halves or a 0.0 from here.');
+
+  if (G) {
+    if (!gb.atPlan && !gb.overPlan && ga.atPlan) add(3, 1, `🎯 That's your ${a.goal.target}. Plan complete.${rule ? ` Your rule: ${rule.label}.` : ''}`);
+    if (!gb.overPlan && ga.overPlan) add(2, 2, `🎯 That's past your plan of ${a.goal.target}.${rule ? ` You said you'd ${rule.label}.` : ''}`);
+  }
+  if (a.paceLevel === 2 && b.paceLevel < 2) add(3, 2, "⏩ That's 3 pints' worth in an hour: the pace where you lose count.");
+  else if (a.paceLevel === 1 && b.paceLevel === 0 && a.lastGap != null && a.lastGap < 20 * MIN) add(5, 1, '⏩ Back to back. Let this one last.');
+  if (a.drunkPoint && b.s.units < a.drunkPoint.units - 0.5 && a.s.units >= a.drunkPoint.units - 0.5) add(3, 1, '📍 This is about where you usually start feeling drunk.');
+  // The drink is already in the log here, so "before" = after minus this drink.
+  const wa = weekUnits(a.key), wb = wa - (a.s.units - b.s.units), wg = state.settings.weekly || 14;
+  if (wb < wg && wa >= wg) add(4, 1, `📊 That takes you past ${wg} units for the week.`);
+  const kd = state.settings.kcalDay;
+  if (kd) for (const f of [0.25, 0.5]) if (b.s.kcal < kd * f && a.s.kcal >= kd * f) add(6, 1, `🔥 Drinks are now ${f * 100}% of your daily calories.`);
+  for (const t of [50, 100]) if (b.s.spend < t && a.s.spend >= t) add(7, 1, `💷 You've just passed £${t} tonight.`);
+  if (drink.cat === 'halves' && (b.level >= 1 || (b.s.drinks.length && b.s.drinks[b.s.drinks.length - 1].cat === 'pints'))) add(8, 0, '👍 Good swap. Halves buy you time.');
+  return out.sort((x, y) => x.p - y.p).slice(0, 2);
+}
+
+function setMoment(key, n, items) {
+  state.moment = items.length ? { key, n, ts: Date.now(), items } : null;
+  store.set('moment', state.moment);
+}
 
 /* ---------------- Logging ---------------- */
 
@@ -1091,6 +1247,10 @@ function openHoldUp(drink, title, g) {
   state.pendingDrink = drink;
   $('holdTitle').textContent = title;
   $('holdDrink').textContent = `${drink.name} · ${fmtUnits(unitsOf(drink.ml, drink.abv))} units`;
+  const sw = swapFor(drink.name);
+  state.holdSwap = sw;
+  $('holdSwap').hidden = !sw;
+  if (sw) $('holdSwap').textContent = `🫧 ${sw.name} instead`;
   $('holdWhy').innerHTML = g.reasons.slice(0, 3).map(r => `<li>${r}</li>`).join('');
   const btn = $('holdAnyway');
   let left = 3;
@@ -1109,13 +1269,14 @@ function openHoldUp(drink, title, g) {
 
 function logDrink(drink, force) {
   const key = nightKey(Date.now());
-  if (!force) {
-    const a = analyse();
-    const g = guidance(a);
-    const t = holdUpTitle(a, g, drink);
-    if (t) return openHoldUp(drink, t, g);
+  const soft = drink.cat === 'nolo';
+  const before = analyse();
+  const gBefore = guidance(before);
+  if (!force && !soft) {
+    const t = holdUpTitle(before, gBefore, drink);
+    if (t) return openHoldUp(drink, t, gBefore);
   }
-  if (state.ended[key]) {
+  if (state.ended[key] && !soft) {
     delete state.ended[key];
     save.ended();
   }
@@ -1135,9 +1296,11 @@ function logDrink(drink, force) {
   state.log.push(entry);
   save.log();
   state.lastAdded = { type: 'drink', id: entry.id };
-  showToast(drink.name + ' added', true);
+  const after = analyse();
+  setMoment(after.key, after.n, detectMoments(before, gBefore, after, guidance(after), drink));
+  showToast(soft ? `🫧 ${drink.name}. Nice swap: counts as a spacer.` : drink.name + ' added', true);
   goTo('now', true);
-  if (!state.goals[key] && inNight(state.log, key).length === 1) openPlanSheet();
+  if (!soft && !state.goals[key] && nightSummary(key).drinks.length === 1) openPlanSheet();
 }
 
 function setDone(done) {
@@ -1145,7 +1308,12 @@ function setDone(done) {
   if (done) {
     state.ended[key] = Date.now();
     state.lastAdded = { type: 'ended', id: key };
-    showToast('🛑 Done for the night. Good call.', true);
+    const g = state.goals[key];
+    const within = g && GOALS[g.type] && pintEq(nightSummary(key).units) <= g.target + PLAN_SLACK;
+    const streak = within ? planStreak() : 0;
+    showToast(within
+      ? `🛑 Done, and within your plan${streak > 1 ? `: ${streak} nights in a row` : ''}. Proper.`
+      : '🛑 Done for the night. Good call: stopping now still counts.', true);
   } else {
     delete state.ended[key];
   }
@@ -1243,12 +1411,20 @@ function renderNow(a) {
   $('nowPlan').innerHTML = G
     ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}${a.town ? ' · 🚆' : ''}`
     : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
+  const mo = state.moment;
+  const showMo = mo && mo.key === a.key && mo.n === n && !a.ended && Date.now() - mo.ts < 45 * MIN;
+  $('nowMoment').hidden = !showMo;
+  if (showMo) $('nowMoment').innerHTML = mo.items.map(x => `<div class="moment m${x.lvl}">${x.text}</div>`).join('');
   $('nowHeadline').textContent = g.title;
   const hc = homeClock(a);
   $('nowClock').hidden = !hc;
   if (hc) { $('nowClock').textContent = hc.text; $('nowClock').className = 'panel-clock lvl' + hc.lvl; }
   $('nowNext').innerHTML = g.next || '';
   $('nowNext').hidden = !g.next;
+  // Your if-then rule, one tap away, right where you're deciding.
+  const ruleAct = ['nolo', 'halves'].find(k => g.actions.includes(k));
+  $('nowAction').hidden = !ruleAct || !n || !!a.ended;
+  if (ruleAct) { $('nowAction').textContent = GUIDE_ACTIONS[ruleAct]; $('nowAction').dataset.guide = ruleAct; }
 
   renderMorningCard(a);
   renderClearCard(a);
@@ -1265,19 +1441,19 @@ function renderNow(a) {
   const tiles = [];
   const light = l => (l <= 0 ? 'g' : l);   // 0 → green
   if (n) {
-    if (!a.ended) tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
-      a.avgGap ? 'per pint' : "first one's free", light(a.paceLevel)));
+    if (!a.ended) tiles.push(tile('🍺', 'Pace', n < 2 ? 'Fresh' : PACE_NAME[a.paceLevel],
+      n < 2 ? "first one's free" : `${Math.max(1, Math.round(a.pacePerPint / MIN))} min a pint`, light(a.paceLevel)));
     const tt = tomorrowTier(a, s.units);
     tiles.push(tile('🌅', 'Tomorrow', ['Fine', 'Groggy', 'Rough', 'Lost day', '2 days'][tt.tier],
-      a.soberAt ? `sober ~${fmtTime(a.soberAt)}` : 'all clear', [ 'g', 'g', 1, 2, 2 ][tt.tier]));
-    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend).replace(/\.00$/, ''), s.unpriced ? `+${s.unpriced} unpriced` : `${s.kcal.toLocaleString('en-GB')} kcal`, light(a.level)));
+      a.soberAt ? `clear ${fmtShortWhen(a.soberAt)}` : 'all clear', [ 'g', 'g', 1, 2, 2 ][tt.tier]));
+    tiles.push(tile('💷', 'Spent', fmtMoney(s.spend).replace(/\.00$/, ''), s.unpriced ? `+${s.unpriced} unpriced` : state.settings.kcalDay ? `${s.kcal} kcal · ${Math.round(s.kcal / state.settings.kcalDay * 100)}% of day` : `${s.kcal.toLocaleString('en-GB')} kcal`, light(a.level)));
     const lf = a.lastFood;
     const foodLvl = a.fed ? 'g' : lf ? 1 : n >= 3 ? 2 : 1;
     tiles.push(tile('🍔', 'Food', lf ? fmtAgo(a.now - lf.ts).replace(' ago', '') : 'None',
       lf ? (a.fed ? FOOD_KINDS[lf.kind].label.toLowerCase() : 'wearing off') : 'tap to log', foodLvl, 'food'));
     const dsw = a.drinksSinceWater;
-    tiles.push(tile('💧', 'Water', String(s.water.length),
-      dsw >= 2 ? `${dsw} drinks since` : s.water.length ? 'keep it up' : 'tap to log', dsw >= 4 ? 2 : dsw >= 2 ? 1 : 'g', 'water'));
+    tiles.push(tile('💧', s.softs.length ? 'Water / 0.0' : 'Water', String(s.spacers),
+      dsw >= 2 ? `${dsw} drinks since` : s.spacers ? 'keep it up' : 'tap to log', dsw >= 4 ? 2 : dsw >= 2 ? 1 : 'g', 'water'));
     if (!a.ended) {
       if (a.town) {
         if (!a.home) tiles.push(tile('🚆', 'Last train', '—', 'tap to set', n >= 2 ? 1 : 0, 'home'));
@@ -1325,15 +1501,13 @@ function renderNow(a) {
   const stopUrgent = live && n >= 2 && (g.stop || g.lastOne || g.overPlan || g.atPlan || a.uLevel >= 1);
   let stopHtml = '';
   if (live && n >= 2) {
-    const sn = stopNow(a, g);
     const homeLine = g.reasons.filter(isHome).map(r => `<div class="stop-line">🏠 ${r.replace('At this pace', 'Keep this pace')}</div>`).join('');
-    stopHtml = `<div class="tile-label">🌙 If you stop now</div><div class="stop-head">${sn.headline}</div>` +
-      sn.lines.map(l => `<div class="stop-line">${l}</div>`).join('') + homeLine;
+    stopHtml = renderStandHtml(stopNow(a, g), homeLine);
   }
   $('stopTop').innerHTML = stopUrgent ? stopHtml : '';
   $('stopTop').hidden = !stopUrgent;
   if (stopHtml && !stopUrgent) {
-    parts.push(`<div class="brief-sec stopnow">${stopHtml}</div>`);
+    parts.push(`<div class="brief-sec stand">${stopHtml}</div>`);
   } else if (n && !stopHtml) {
     const tm = tomorrowNudge(a);
     if (tm) parts.push(`<div class="brief-sec"><div class="tile-label">🏋️ Tomorrow</div><div class="stop-line">${tm.text}</div></div>`);
@@ -1342,7 +1516,8 @@ function renderNow(a) {
   const nudge = n ? pickNudges(a, 1)[0] : null;
   if (nudge) parts.push(`<div class="brief-sec"><div class="nudge"><span class="nudge-icon">${nudge.icon}</span><div>${nudge.text}</div></div></div>`);
 
-  const acts = g.actions.filter(k => !['water', 'food', 'done', 'undone'].includes(k));
+  // water/food/done live in the action row; the rule's 0.0/halves button lives in the panel.
+  const acts = g.actions.filter(k => !['water', 'food', 'done', 'undone', 'nolo', 'halves'].includes(k));
   if (acts.length) parts.push(`<div class="guide-actions">${acts.map(k =>
     `<button class="guide-btn" data-guide="${k}">${GUIDE_ACTIONS[k]}</button>`).join('')}</div>`);
 
@@ -1519,6 +1694,8 @@ function saveMorning() {
 function homeClock(a) {
   if (!a.home || a.ended) return null;
   const now = Date.now();
+  const window = a.town ? 90 * MIN : 60 * MIN;
+  if ((a.town ? a.leaveAt : a.home) - now > window) return null;
   if (a.town) {
     const left = a.leaveAt - now;
     if (now > a.home) return { text: `🚆 Missed the ${fmtTime(a.home)}`, short: 'train missed', lvl: 2 };
@@ -1626,7 +1803,9 @@ function renderHistory(a) {
   const monday = new Date(today);
   monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
 
-  const week = keys.filter(k => keyToDate(k) >= monday).map(nightSummary);
+  const week = keys.filter(k => keyToDate(k) >= monday).map(nightSummary).filter(x => x.drinks.length);
+  const daysSoFar = Math.round((today - monday) / (24 * HOUR)) + 1;
+  const freeDays = Math.max(0, daysSoFar - week.length);
   const wk = {
     units: sum(week, s => s.units), drinks: sum(week, s => s.drinks.length),
     spend: sum(week, s => s.spend), kcal: sum(week, s => s.kcal), days: week.length,
@@ -1635,7 +1814,9 @@ function renderHistory(a) {
     <div class="week-label">This week (from Mon)</div>
     <div class="week-nums"><b>${fmtUnits(wk.units)}</b> units · ${plural(wk.drinks, 'drink')} · ${plural(wk.days, 'day')}</div>
     <div class="week-extra">💷 ${fmtMoney(wk.spend)} · 🍔 ${Math.round(wk.kcal).toLocaleString('en-GB')} kcal</div>
-    <div class="week-note">UK guideline: no more than 14 units a week, spread over 3+ days.</div>`;
+    <div class="week-extra">🌿 Drink-free days: <b>${freeDays} of ${daysSoFar}</b> so far${planStreak() >= 2 ? ` · 🔥 plan kept ${planStreak()} nights running` : ''}</div>
+    <div class="week-note">${(state.settings.weekly || 14) === 14 ? 'UK guideline: no more than 14 units a week, spread over 3+ days.'
+      : `Your weekly goal: ${state.settings.weekly} units (${wk.units <= state.settings.weekly ? `${fmtUnits(state.settings.weekly - wk.units)} left` : `${fmtUnits(wk.units - state.settings.weekly)} over`}). UK guideline is 14.`}</div>`;
 
   // Insights
   const ins = [];
@@ -1702,6 +1883,8 @@ function renderHistory(a) {
   if (document.activeElement !== $('setAmber')) $('setAmber').value = state.settings.amber;
   if (document.activeElement !== $('setRed')) $('setRed').value = state.settings.red;
   $('setCheck').value = String(state.settings.checkEvery);
+  if (document.activeElement !== $('setWeekly')) $('setWeekly').value = state.settings.weekly || 14;
+  if (document.activeElement !== $('setKcal')) $('setKcal').value = state.settings.kcalDay || '';
 }
 
 function render() {
@@ -1845,8 +2028,10 @@ function openPlanSheet() {
   const day = keyToDate(key).getDay();          // 0 Sun … 6 Sat
   const defaultWork = day >= 0 && day <= 4;     // Sun–Thu nights
   state.planDraft = cur && GOALS[cur.type]
-    ? { where: state.settings.lastWhere || 'local', ...cur }
-    : { type: 'quick', target: GOALS.quick.target, work: defaultWork, where: state.settings.lastWhere || 'local' };
+    ? { where: state.settings.lastWhere || 'local', rule: state.settings.lastRule || 'nolo', why: '', ...cur }
+    : { type: 'quick', target: GOALS.quick.target, work: defaultWork, where: state.settings.lastWhere || 'local',
+        rule: state.settings.lastRule || 'nolo', why: '' };
+  $('planWhy').value = state.planDraft.why || '';
   renderPlanSheet();
   openSheet('planSheet');
 }
@@ -1862,14 +2047,18 @@ function renderPlanSheet() {
   $('workToggle').classList.toggle('active', !!d.work);
   $('workToggle').textContent = d.work ? '🗓 Work tomorrow: yes' : '🗓 Work tomorrow: no';
   $('whereToggle').classList.toggle('active', d.where === 'town');
-  $('whereToggle').textContent = d.where === 'town' ? '🚆 In London · train home' : '📍 Local · taxi or walk home';
+  $('whereToggle').textContent = d.where === 'town' ? '🚆 In town · train home' : '📍 Local · taxi or walk home';
+  $('ruleChips').innerHTML = Object.entries(RULES).map(([k, r]) =>
+    `<button type="button" class="chip${d.rule === k ? ' active' : ''}" data-rule="${k}">${r.emoji} ${r.label}</button>`).join('');
 }
 
 function savePlan(type) {
   const key = nightKey(Date.now());
-  state.goals[key] = type === 'none' ? { type: 'none', where: state.planDraft.where } : { ...state.planDraft };
+  state.planDraft.why = $('planWhy').value.trim().slice(0, 60);
+  state.goals[key] = type === 'none' ? { type: 'none', where: state.planDraft.where, why: state.planDraft.why } : { ...state.planDraft };
   save.goals();
   state.settings.lastWhere = state.planDraft.where;
+  state.settings.lastRule = state.planDraft.rule;
   save.settings();
   closeSheets();
   if (type !== 'none') showToast(`${GOALS[state.planDraft.type].emoji} Plan set: ${plural(state.planDraft.target, 'pint')}.`, false);
@@ -1952,6 +2141,7 @@ function bind() {
   $('doneBtn').addEventListener('click', () => setDone(!analyse().ended));
   const closeHold = () => { clearInterval(state.holdTimer); state.pendingDrink = null; closeSheets(); };
   $('holdWater').addEventListener('click', () => { closeHold(); goTo('now'); logWater(); });
+  $('holdSwap').addEventListener('click', () => { const sw = state.holdSwap; closeHold(); if (sw) logDrink(sw, true); });
   $('holdDone').addEventListener('click', () => { closeHold(); setDone(true); });
   $('holdAnyway').addEventListener('click', () => {
     const d = state.pendingDrink;
@@ -1960,6 +2150,7 @@ function bind() {
   });
   $('nowPlan').addEventListener('click', openPlanSheet);
   $('nowClock').addEventListener('click', openHomeSheet);
+  $('nowAction').addEventListener('click', e => { state.cat = e.currentTarget.dataset.guide; goTo('add'); });
   $('planOpts').addEventListener('click', e => {
     const b = e.target.closest('[data-goal]');
     if (!b) return;
@@ -1970,6 +2161,14 @@ function bind() {
   $('aimMinus').addEventListener('click', () => { state.planDraft.target = Math.max(1, state.planDraft.target - 1); renderPlanSheet(); });
   $('aimPlus').addEventListener('click', () => { state.planDraft.target = Math.min(20, state.planDraft.target + 1); renderPlanSheet(); });
   $('workToggle').addEventListener('click', () => { state.planDraft.work = !state.planDraft.work; renderPlanSheet(); });
+  $('whyChips').addEventListener('click', e => {
+    const b = e.target.closest('[data-why]');
+    if (b) $('planWhy').value = b.dataset.why;
+  });
+  $('ruleChips').addEventListener('click', e => {
+    const b = e.target.closest('[data-rule]');
+    if (b) { state.planDraft.rule = b.dataset.rule; renderPlanSheet(); }
+  });
   $('whereToggle').addEventListener('click', () => { state.planDraft.where = state.planDraft.where === 'town' ? 'local' : 'town'; renderPlanSheet(); });
   $('planSave').addEventListener('click', () => savePlan(state.planDraft.type));
   $('planSkip').addEventListener('click', () => savePlan('none'));
@@ -1982,6 +2181,7 @@ function bind() {
     if (k === 'home' || k === 'train') openHomeSheet();
     if (k === 'plan') openPlanSheet();
     if (k === 'halves') { state.cat = 'halves'; goTo('add'); }
+    if (k === 'nolo') { state.cat = 'nolo'; goTo('add'); }
     if (k === 'done') setDone(true);
     if (k === 'undone') setDone(false);
   });
@@ -2165,6 +2365,16 @@ function bind() {
       $('setRed').value = state.settings.red;
     }
   };
+  $('setWeekly').addEventListener('change', () => {
+    const v = parseNum($('setWeekly').value);
+    state.settings.weekly = v > 0 && v <= 100 ? Math.round(v) : 14;
+    save.settings(); $('setWeekly').value = state.settings.weekly;
+  });
+  $('setKcal').addEventListener('change', () => {
+    const v = parseNum($('setKcal').value);
+    state.settings.kcalDay = v >= 800 && v <= 6000 ? Math.round(v) : 0;
+    save.settings(); $('setKcal').value = state.settings.kcalDay || '';
+  });
   $('setAmber').addEventListener('change', onSetting);
   $('setRed').addEventListener('change', onSetting);
 

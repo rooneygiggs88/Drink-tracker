@@ -26,6 +26,7 @@
     <section class="view" id="view-now">
       <div class="panel lvl-none" id="panel">
         <div class="panel-date" id="nowDate">Tonight</div>
+        <div class="panel-moments" id="nowMoment" hidden></div>
         <div class="panel-big">
           <span class="big-num" id="nowDrinks">0</span>
           <span class="big-label" id="nowDrinksLabel">drinks</span>
@@ -36,6 +37,7 @@
         <div class="panel-headline" id="nowHeadline">Nothing yet. Enjoy it.</div>
         <div class="panel-why" id="nowWhy" hidden></div>
         <div class="panel-next" id="nowNext" hidden></div>
+        <button class="panel-action" id="nowAction" hidden></button>
       </div>
 
       <div class="now-body">
@@ -88,6 +90,8 @@
       <div class="card settings">
         <label class="setting"><span><i class="dot lvl-1"></i>Amber from</span><input id="setAmber" type="text" inputmode="decimal"> units</label>
         <label class="setting"><span><i class="dot lvl-2"></i>Red from</span><input id="setRed" type="text" inputmode="decimal"> units</label>
+        <label class="setting"><span>📊 Weekly goal</span><input id="setWeekly" type="text" inputmode="numeric"> units</label>
+        <label class="setting"><span>🔥 Daily calories (optional)</span><input id="setKcal" type="text" inputmode="numeric" placeholder="off"> kcal</label>
         <label class="setting"><span>🫠 Ask how I'm feeling</span>
           <select id="setCheck">
             <option value="1">Every drink</option>
@@ -185,7 +189,8 @@
       <p class="sheet-note" id="holdDrink"></p>
       <ul class="guide-why" id="holdWhy"></ul>
       <div class="sheet-actions">
-        <button type="button" class="btn-primary" id="holdWater">💧 Have a water instead</button>
+        <button type="button" class="btn-primary" id="holdSwap">🫧 0.0 instead</button>
+        <button type="button" class="btn-secondary" id="holdWater">💧 Have a water instead</button>
         <button type="button" class="btn-secondary" id="holdDone">🛑 I'm done for the night</button>
         <button type="button" class="btn-anyway" id="holdAnyway" disabled>Log it anyway (3)</button>
       </div>
@@ -231,6 +236,18 @@
       <div class="toggles">
         <button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button>
         <button type="button" class="chip toggle" id="whereToggle">📍 Local</button>
+      </div>
+      <div class="mq"><span>When I hit my plan, I'll…</span><div class="chips" id="ruleChips"></div></div>
+      <label class="field">
+        <span>Tomorrow I want to… (optional)</span>
+        <input id="planWhy" type="text" maxlength="60" placeholder="e.g. Gym at 7 · parkrun · be sharp for work">
+      </label>
+      <div class="chips why-chips" id="whyChips">
+        <button type="button" class="chip" data-why="Long run">🏃 Long run</button>
+        <button type="button" class="chip" data-why="Gym session">🏋️ Gym</button>
+        <button type="button" class="chip" data-why="Swim">🏊 Swim</button>
+        <button type="button" class="chip" data-why="Race / event">🏁 Race</button>
+        <button type="button" class="chip" data-why="Big day at work">💼 Big work day</button>
       </div>
       <div class="sheet-actions">
         <button type="button" class="btn-primary" id="planSave">Set plan</button>

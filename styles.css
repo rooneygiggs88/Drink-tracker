@@ -709,3 +709,37 @@ button.tile:active { transform: scale(.97); }
 .panel-clock.lvl2 { font-size: 21px; font-weight: 900; background: #000; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .55; } }
 #barSub.urgent { animation: pulse 1.2s ease-in-out infinite; opacity: 1; }
+
+/* ---------- Moments: what that drink just changed ---------- */
+.panel-moments { margin-top: 8px; display: grid; gap: 6px; }
+.moment {
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  animation: moment-in .5s ease;
+}
+.moment.m0 { background: rgba(0,0,0,.22); }
+.moment.m1 { background: rgba(0,0,0,.32); }
+.moment.m2 { background: #000; }
+@keyframes moment-in { from { transform: translateY(-6px); opacity: 0; } }
+
+/* ---------- Where you stand: red / amber / green ---------- */
+.stand-sec { margin-top: 12px; }
+.stand-head { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.stand-head::before { content: ''; width: 10px; height: 10px; border-radius: 50%; }
+.stand-head.r { color: #ff8a80; } .stand-head.r::before { background: var(--lvl-2); }
+.stand-head.a { color: #f5b74a; } .stand-head.a::before { background: var(--lvl-1); }
+.stand-head.g { color: #8be0b0; } .stand-head.g::before { background: var(--lvl-0); }
+.stand-line { padding: 8px 0 8px 12px; font-size: 15px; line-height: 1.4; border-left: 3px solid var(--line); margin: 4px 0; }
+.stand-line.s2 { border-left-color: var(--lvl-2); }
+.stand-line.s1 { border-left-color: var(--lvl-1); }
+.stand-line.s0 { border-left-color: var(--line); }
+.stand-sec.g { margin: 14px -16px -4px; padding: 12px 16px 4px; background: linear-gradient(180deg, rgba(29,107,66,.22), transparent); border-top: 1px solid var(--lvl-0); }
+.card.stoptop { border-width: 1px; border-color: var(--line); background: var(--surface); }
+
+.why-chips { margin-top: 8px; }
+.why-chips .chip { padding: 7px 11px; font-size: 13px; }
+
+.panel-action { display: block; width: 100%; margin-top: 10px; padding: 14px; border-radius: 14px; background: #fff; color: #111; font-size: 18px; font-weight: 900; }
