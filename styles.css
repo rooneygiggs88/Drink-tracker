@@ -618,3 +618,24 @@ button.tile:active { transform: scale(.97); }
   text-decoration: underline;
 }
 .btn-anyway:disabled { opacity: .45; text-decoration: none; }
+
+/* ---------- Tomorrow & nudges ---------- */
+.card.nudges { margin-top: 12px; padding: 4px 16px; }
+.nudge {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  font-size: 15px;
+  line-height: 1.4;
+  border-top: 1px solid var(--line);
+}
+.nudge:first-child { border-top: 0; }
+.nudge-icon { font-size: 22px; flex: 0 0 auto; }
+.nudge b { color: var(--accent); }
+.nudge .tile-label { margin-bottom: 2px; }
+
+/* ---------- If you stop now ---------- */
+.card.stopnow { margin-top: 12px; border-color: var(--lvl-0); background: linear-gradient(180deg, rgba(29,107,66,.18), var(--surface) 60%); }
+.stop-line { padding: 9px 0; font-size: 15px; line-height: 1.4; border-top: 1px solid var(--line); }
+.stop-line:first-of-type { border-top: 0; }
+.stop-line b { color: #6fd39a; }

@@ -427,6 +427,7 @@ function analyse() {
 
 // Plans count in pint-equivalents (a half = ½, a large wine ≈ 1¼, a shot ≈ ⅓).
 const pintEq = units => units / PINT_UNITS;
+const PLAN_SLACK = 0.4;   // a couple of strong pints is still a couple
 function fmtPints(pe) {
   const h = Math.round(pe * 2) / 2;
   const whole = Math.floor(h);
@@ -443,6 +444,318 @@ function pintsLeftText(unitsLeft) {
   if (halves === 1) return 'one half';
   const pints = Math.floor(halves / 2);
   return `${plural(pints, 'pint')} (${halves} halves)`;
+}
+
+/* ---------------- The guidance library ----------------
+   Several ways of saying each thing, so it doesn't go stale. The line changes
+   with each drink (not every refresh). {placeholders} are filled from context. */
+const LINES = {
+  fine: [
+    "You're doing fine. Keep it steady.",
+    'Nice and steady. This is how it should feel.',
+    'All good. Enjoy this one.',
+    'On track. No notes.',
+    'Steady as she goes.',
+  ],
+  makeLast: [
+    'Make this one last.',
+    'Fresh one in hand. Make it a slow one.',
+    'Nurse this one. No rush.',
+    "This one's a sipper, not a sprint.",
+  ],
+  nearQuick: [
+    'Nearly at your couple. Make this one last.',
+    "One more and that's your couple. Pace it.",
+    "The couple's nearly done. Savour it.",
+    '≈{pe} of {t}. Make the next one the last.',
+  ],
+  nearPlan: [
+    'Nearly at your plan. Make this one last.',
+    'Getting close to your {t}. Slow it right down.',
+    "≈{pe} of {t}. You're nearly there.",
+  ],
+  atQuick: [
+    "That's your couple. Good time to head home.",
+    "Couple: done. Leave on a high.",
+    "That's the plan complete. Home?",
+    "That's the couple. Tomorrow-you says thanks for leaving now.",
+  ],
+  atHome: [
+    "That's your lot for a night in. Swap to something soft?",
+    'Plan hit. Kettle on?',
+    "That's the {t}. Tea from here?",
+  ],
+  overLight: [
+    "That's more than a couple. Make this the last.",
+    'Over the plan now. This is the last one.',
+    '≈{pe} on a {t}-pint plan. Last one, then home.',
+    "The couple's become a few. Draw the line here.",
+  ],
+  wayOver1: [
+    "Way past a couple. Tomorrow's going to hurt. Stop now.",
+    "This stopped being 'a couple' a while ago. Home.",
+    '≈{pe} pints on a {t}-pint plan. Call it.',
+  ],
+  wayOverWork: [
+    "Way past a couple, and you've got work. Stop now.",
+    '≈{pe} pints on a work night. Stop here.',
+    "Work tomorrow and {u} units tonight. Time to go.",
+  ],
+  wayOver2: [
+    '≈{pe} pints. You planned {t}. This is a full night out now. Stop.',
+    '{n} drinks deep on a quick-one plan. Time to go.',
+    "{over} pints over. Nothing good comes from the next one.",
+  ],
+  wayOver3: [
+    '≈{pe} pints on a {t}-pint night. Seriously, get home.',
+    "This is a big night nobody planned. Water, taxi, bed.",
+    'Every extra pint now is pure regret tomorrow. Stop.',
+  ],
+  noFood: [
+    'Eat something before the next drink.',
+    '{n} drinks, no food. Get something in.',
+    'Food. Now. Chips count.',
+    'Empty stomach and {u} units. Eat something.',
+  ],
+  noFoodBig: [
+    'Long night ahead. Eat something now.',
+    'Line your stomach before the next round. Food first.',
+    "You won't last the night on an empty stomach. Eat.",
+  ],
+  paceRed: [
+    'Slow right down. Nothing before {next}.',
+    "That's a sprint, not a session. Pause till {next}.",
+    "Too quick. Your head hasn't caught up yet. Wait till {next}.",
+  ],
+  paceRedBig: [
+    'This is quick even for a big night. Nothing before {next}.',
+    "Long night, short drinks. Wait till {next}.",
+    "You'll peak too early at this rate. Next one after {next}.",
+  ],
+  paceAmber: [
+    'Bit quick. Next one not before {next}.',
+    'Ease off. Next one after {next}.',
+    'Slightly too fast. Give it till {next}.',
+  ],
+  water: [
+    'Water before the next one.',
+    'Water break. Then decide.',
+    '{dsw} drinks since your last water. Have one.',
+    'Hydrate before the next round.',
+  ],
+  feltEarly: [
+    "You're feeling it early tonight. Take it slow.",
+    "It's hitting early tonight. Ease off.",
+    'Tipsy on {cu} units? Your body is telling you something.',
+  ],
+  fineButHigh: [
+    "You feel fine, but it's still catching up. Slow down.",
+    "Feeling fine is the trap. It's still landing.",
+    "{u} units and 'fine'? Give it 30 minutes.",
+  ],
+  amber: [
+    'Steady on. Halves or water from here.',
+    'Amber. Halves would be clever now.',
+    'Into amber. Slow the next one down.',
+    'Good time to switch to halves.',
+  ],
+  bigAmber: [
+    "Big night, fair enough. Pace it, it's a long one.",
+    "Big one, but there's a long way to go. Pace.",
+    'Halfway-ish. Water, food, then carry on.',
+    'Marathon, not a sprint.',
+  ],
+  foodGone: [
+    "Your food's worn off. Grab something.",
+    "Dinner's long gone. Snack time.",
+    'Top up the tank. Something to eat.',
+  ],
+  redLast: [
+    "You're in the red. Make this your last one.",
+    'Red zone. This is the last.',
+    '{u} units. Last one, then call it.',
+  ],
+  bigHit: [
+    "You've hit your big-night number. Make this the last.",
+    '{t} pints: big night achieved. Last one.',
+    "That's the big night done. Finish this and get home.",
+  ],
+  atTipping: [
+    'This is where you usually get drunk. Make it the last.',
+    'Your usual tipping point. Last one.',
+    "You know how this goes from here. Last one.",
+  ],
+  drunk: [
+    'You said drunk. Make this your last one.',
+    'Drunk, by your own account. Last one.',
+    "You said drunk. Believe yourself. Last one.",
+  ],
+  wrecked: [
+    'You said wrecked. Stop now: water, then home.',
+    'Wrecked means home. Now.',
+    'No more. Water, then get yourself home safe.',
+  ],
+  pastHome: [
+    'Past your home time. Get your coat.',
+    'Home time was {home}. Go.',
+    'You promised yourself {home}. Keep it.',
+  ],
+  stop: [
+    'Stop now. Water, then home.',
+    "{u} units. That's plenty. Home.",
+    'Nothing good happens after this. Home.',
+  ],
+  stop2: [
+    '{u} units. This is genuinely a lot. Water and home, now.',
+    'Way beyond red. Get yourself home safe.',
+    'Done. Water, taxi, bed. In that order.',
+  ],
+};
+
+function hashStr(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+// Pick a line for a situation; stable for a given seed (night + drink count).
+function say(sit, ctx, seed) {
+  const opts = LINES[sit] || LINES.fine;
+  const line = opts[hashStr(seed + '|' + sit) % opts.length];
+  return line.replace(/\{(\w+)\}/g, (_, k) => (ctx[k] != null ? ctx[k] : ''));
+}
+
+/* ---------------- Tomorrow & nudges ---------------- */
+
+const MONEY_EQUIVALENTS = [
+  [5, 'a meal deal'],
+  [10, 'a cinema ticket'],
+  [15, "a month of Netflix"],
+  [25, 'a decent takeaway'],
+  [40, "a month's gym membership"],
+  [60, 'a weekly food shop'],
+  [90, 'a new pair of running trainers'],
+  [150, 'a weekend train trip'],
+  [250, 'a cheap flight somewhere sunny'],
+];
+
+// What a night of `u` units costs tomorrow. Rough, but grounded: sleep quality drops
+// above ~4 units; heavy drinking blunts muscle recovery for about a day.
+function tomorrowTier(a, u) {
+  const tmr = keyToDate(a.key); tmr.setDate(tmr.getDate() + 1);
+  const day = tmr.toLocaleDateString('en-GB', { weekday: 'long' });
+  const after = new Date(tmr); after.setDate(after.getDate() + 1);
+  const day2 = after.toLocaleDateString('en-GB', { weekday: 'long' });
+  const tier = u < 4 ? 0 : u < 8 ? 1 : u < 12 ? 2 : u < 16 ? 3 : 4;
+  return {
+    tier,
+    extra: [0, 2, 6, 12, 30][tier],          // hours of feeling rough after you hit zero
+    short: ["you're fine tomorrow, gym's on", 'a slower morning, light training only',
+            'a rough morning, no heavy training', 'a full-day hangover', 'a two-day recovery'][tier],
+    text: [
+      `Should be fine ${day}. Gym's on.`,
+      `Expect a slower ${day} morning. Sleep takes a hit above ~4 units. Light training's fine, no PBs.`,
+      `Hangover likely through ${day} morning. Strength and endurance noticeably down; a heavy session or long run is a write-off.`,
+      `Probably a full-day hangover ${day}. Muscle recovery is blunted for about a day after heavy drinking. Skip training.`,
+      `This is two-day-recovery territory. Gym and runs are off until ${day2}, realistically.`,
+    ][tier],
+  };
+}
+
+function tomorrowNudge(a) {
+  const u = a.s.units;
+  if (u < 2) return null;
+  const t = tomorrowTier(a, u);
+  let text = t.text;
+  if (a.soberAt && u >= 4) text += ` Feeling normal by <b>${fmtFeelTime(a.soberAt + t.extra * HOUR)}</b>.`;
+  return { icon: '🏋️', label: 'Tomorrow', text };
+}
+
+// "tomorrow late morning" / "Saturday afternoon". You feel a hangover when you're awake,
+// so anything overnight rounds forward to the morning.
+function fmtFeelTime(ts) {
+  const d = new Date(ts);
+  if (d.getHours() < 8) d.setHours(8, 0, 0, 0);
+  if (d.getHours() >= 23) { d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); }
+  const h = d.getHours();
+  const part = h < 10 ? 'morning' : h < 12 ? 'late morning' : h < 14 ? 'lunchtime' : h < 16 ? 'mid-afternoon' : h < 18 ? 'late afternoon' : 'evening';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day0 = new Date(d); day0.setHours(0, 0, 0, 0);
+  const days = Math.round((day0 - today) / (24 * HOUR));
+  const dayWord = days <= 0 ? 'today' : days === 1 ? 'tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'long' });
+  return `${dayWord} ${part}`;
+}
+
+// The positive version: what stopping now buys you, versus one more.
+function stopNowLines(a, g) {
+  const { s, n } = a;
+  const u = s.units;
+  const lines = [];
+  const lastDrink = s.drinks[n - 1];
+  const more = lastDrink.units;
+  const zeroNow = a.soberAt || a.now;
+  const zeroMore = zeroNow + (more / CLEAR_RATE) * HOUR;
+  lines.push(`Clear by <b>${fmtWhen(zeroNow)}</b>. One more pushes that to <b>${fmtWhen(zeroMore)}</b>.`);
+
+  const now = tomorrowTier(a, u), next = tomorrowTier(a, u + more);
+  lines.push(next.tier > now.tier
+    ? `Stop now: ${now.short}. <b>One more:</b> ${next.short}.`
+    : `Stop now: ${now.short}.`);
+
+  if (u >= 4) {
+    const plain = zeroNow + now.extra * HOUR;
+    const cared = zeroNow + now.extra * 0.6 * HOUR;
+    const todo = [a.drinksSinceWater ? 'a pint of water' : 'a pint of water (you haven\'t had one)', a.fed ? null : 'some food', 'a proper sleep'].filter(Boolean);
+    const fc = fmtFeelTime(cared), fp = fmtFeelTime(plain);
+    const list = todo.join(', ').replace(/, ([^,]*)$/, ' and $1');
+    lines.push(fc !== fp
+      ? `Add ${list} and you'll feel human by <b>${fc}</b> instead of <b>${fp}</b>.`
+      : `Add ${list}: it won't speed up your liver, but it takes the edge off by <b>${fc}</b>.`);
+  }
+
+  const priced = s.drinks.filter(e => e.price != null);
+  if (priced.length) {
+    const avg = sum(priced, e => e.price) / priced.length;
+    lines.push(`You keep <b>${fmtMoney(avg * 2)}</b>, what the next two would cost.`);
+  }
+
+  if (a.goal && GOALS[a.goal.type]) {
+    lines.push(g.overPlan ? "You're over the plan, but stopping here still counts." : 'And the plan stays intact. ✅');
+  }
+  return lines;
+}
+
+function nudgePool(a) {
+  const { s, n } = a;
+  const u = s.units;
+  const pool = [];
+  if (s.spend > 0) {
+    const eq = MONEY_EQUIVALENTS.filter(([amt]) => s.spend >= amt).pop();
+    if (eq) pool.push({ icon: '💷', text: `<b>${fmtMoney(s.spend)}</b> tonight. That's ${eq[1]}.` });
+    const priced = s.drinks.filter(e => e.price != null);
+    if (priced.length && !a.ended) {
+      const avg = sum(priced, e => e.price) / priced.length;
+      pool.push({ icon: '💷', text: `The next one makes it <b>${fmtMoney(s.spend + avg)}</b>. A round for four: ~${fmtMoney(avg * 4)}.` });
+    }
+    if (s.spend >= 30) pool.push({ icon: '💷', text: `A night like this every week is about <b>£${Math.round(s.spend * 52).toLocaleString('en-GB')}</b> a year.` });
+  }
+  if (u >= 7) pool.push({ icon: '📊', text: `That's <b>${Math.round((u / 14) * 100)}%</b> of the weekly guideline (14 units) in one night.` });
+  if (s.kcal >= 400) pool.push({ icon: '🏃', text: `${s.kcal.toLocaleString('en-GB')} kcal. About <b>${Math.round(s.kcal / 65)} km</b> of running to burn off.` });
+  if (u >= 4) pool.push({ icon: '😴', text: 'Above ~4 units, deep and REM sleep take the hit: you sleep longer and wake up worse.' });
+  if (n >= 3 && !s.water.length) pool.push({ icon: '💧', text: 'Alcohol makes you lose more fluid than you drink. One water per drink is the cheapest hangover cure going.' });
+  if (a.elapsed > 2 * HOUR && u > 3) pool.push({ icon: '🫀', text: `Your body's cleared about <b>${fmtUnits(Math.max(0, u - a.inSystem))}</b> of your ${fmtUnits(u)} units so far. The rest is queued up for the night shift.` });
+  if (a.goal && a.goal.type === 'big' && n >= 3) pool.push({ icon: '🔋', text: "Phone battery, how you're getting home, who you're with. Sort those while you still care." });
+  if (u >= 10) pool.push({ icon: '🧠', text: "Past ~10 units, memory starts getting patchy. If you can't remember drink 6 tomorrow, that's why." });
+  return pool;
+}
+
+// Two nudges, rotating with each drink so they don't go stale.
+function pickNudges(a, count = 2) {
+  const pool = nudgePool(a);
+  if (pool.length <= count) return pool;
+  const start = hashStr(a.key + '|nudge|' + a.n) % pool.length;
+  return Array.from({ length: count }, (_, i) => pool[(start + i * 3) % pool.length])
+    .filter((x, i, arr) => arr.indexOf(x) === i);
 }
 
 /* The guidance engine: weighs everything and decides one thing to do next.
@@ -498,10 +811,10 @@ function guidance(a) {
   const fineButHigh = fl != null && fl <= 1 && u >= A && now - c.ts < 90 * MIN;
 
   const pe = a.pe;
-  const overPlan = G && pe > goal.target + 0.25;
-  const atPlan = G && !overPlan && pe >= goal.target - 0.25;
+  const overPlan = G && pe > goal.target + PLAN_SLACK;
+  const atPlan = G && !overPlan && pe >= goal.target - PLAN_SLACK;
   // On a light night, going past the plan means stop; on bigger nights it means "last one".
-  const stop = wrecked || u >= R * 1.5 || pastHome || (drunk && u >= R) || (tone === 'light' && (u >= R * 1.3 || pe >= goal.target + 2));
+  const stop = wrecked || u >= R * 1.5 || pastHome || (drunk && u >= R) || (tone === 'light' && (u >= R * 1.6 || pe >= goal.target + 2));
   const lastOne = !stop && (u >= R || drunk || atTipping || (tone === 'light' && overPlan));
 
   // ---- When could the next one be? ~45 min a pint, scaled by size; the first is quicker. ----
@@ -515,32 +828,36 @@ function guidance(a) {
     nextAt = a.last + gap;
   }
 
-  // ---- The one thing to do ----
-  let title;
-  if (stop) title = pastHome ? "Past your home time. Get your coat."
-    : wrecked ? 'You said wrecked. Stop now: water, then home.'
-    : tone === 'light' && overPlan ? (goal.work
-        ? `Way past ${goal.type === 'quick' ? 'a couple' : 'a night in'}, and you've got work. Stop now.`
-        : `Way past ${goal.type === 'quick' ? 'a couple' : 'a night in'}. Tomorrow's going to hurt. Stop now.`)
-    : 'Stop now. Water, then home.';
-  else if (lastOne) title = drunk ? 'You said drunk. Make this your last one.'
-    : tone === 'light' && overPlan ? `That's more than ${goal.type === 'quick' ? 'a couple' : 'planned'}. Make this the last.`
-    : atTipping ? 'This is where you usually get drunk. Make it the last.'
-    : tone === 'big' ? "You've hit your big-night number. Make this the last."
-    : "You're in the red. Make this your last one.";
-  else if (tone === 'light' && atPlan) title = goal.type === 'quick' ? "That's your couple. Good time to head home." : "That's your lot for a night in. Swap to something soft?";
-  else if (noFood) title = tone === 'big' ? 'Long night ahead. Eat something now.' : 'Eat something before the next drink.';
-  else if (a.paceLevel === 2) title = tone === 'big' ? `This is quick even for a big night. Nothing before ${fmtTime(nextAt)}.` : `Slow right down. Nothing before ${fmtTime(nextAt)}.`;
-  else if (tone === 'light' && a.uLevel === 1) title = goal.type === 'quick' ? 'Nearly at your couple. Make this one last.' : 'Nearly at your plan. Make this one last.';
-  else if (tone === 'big' && a.uLevel === 1) title = "Big night, fair enough. Pace it, it's a long one.";
-  else if (waterDue) title = 'Water before the next one.';
-  else if (feltEarly) title = "You're feeling it early tonight. Take it slow.";
-  else if (fineButHigh) title = "You feel fine, but it's still catching up. Slow down.";
-  else if (a.uLevel === 1) title = 'Steady on. Halves or water from here.';
-  else if (a.paceLevel === 1) title = `Bit quick. Next one not before ${fmtTime(nextAt)}.`;
-  else if (foodGone) title = "Your food's worn off. Grab something.";
-  else if (now - a.last < 15 * MIN) title = 'Make this one last.';
-  else title = "You're doing fine. Keep it steady.";
+  // ---- The one thing to do: pick a situation, then a line from the library ----
+  const over = G ? pe - goal.target : 0;
+  let sit;
+  if (stop) {
+    if (pastHome) sit = 'pastHome';
+    else if (wrecked) sit = 'wrecked';
+    else if (tone === 'light' && overPlan) sit = over >= 5 ? 'wayOver3' : over >= 3 ? 'wayOver2' : goal.work ? 'wayOverWork' : 'wayOver1';
+    else sit = u >= R * 2 ? 'stop2' : 'stop';
+  }
+  else if (lastOne) sit = drunk ? 'drunk' : tone === 'light' && overPlan ? 'overLight'
+    : atTipping ? 'atTipping' : tone === 'big' ? 'bigHit' : 'redLast';
+  else if (tone === 'light' && atPlan) sit = goal.type === 'quick' ? 'atQuick' : 'atHome';
+  else if (noFood) sit = tone === 'big' ? 'noFoodBig' : 'noFood';
+  else if (a.paceLevel === 2) sit = tone === 'big' ? 'paceRedBig' : 'paceRed';
+  else if (tone === 'light' && a.uLevel === 1) sit = goal.type === 'quick' ? 'nearQuick' : 'nearPlan';
+  else if (tone === 'big' && a.uLevel === 1) sit = 'bigAmber';
+  else if (waterDue) sit = 'water';
+  else if (feltEarly) sit = 'feltEarly';
+  else if (fineButHigh) sit = 'fineButHigh';
+  else if (a.uLevel === 1) sit = 'amber';
+  else if (a.paceLevel === 1) sit = 'paceAmber';
+  else if (foodGone) sit = 'foodGone';
+  else if (now - a.last < 15 * MIN) sit = 'makeLast';
+  else sit = 'fine';
+
+  const title = say(sit, {
+    n, pe: fmtPints(pe), t: G ? goal.target : 0, over: fmtPints(over), u: fmtUnits(u),
+    next: nextAt ? fmtTime(nextAt) : '', home: a.home ? fmtTime(a.home) : '',
+    dsw: a.drinksSinceWater, cu: c ? fmtUnits(c.units) : '',
+  }, `${a.key}|${n}`);
 
   // ---- Why ----
   if (G) reasons.push(`${G.emoji} Plan: <b>${G.label}</b>, ${plural(goal.target, 'pint')}. You're on <b>≈${fmtPints(pe)}</b>${overPlan ? `, <b>${fmtPints(pe - goal.target)} over</b>` : ''}${Math.abs(n - pe) >= 0.5 ? ` (${plural(n, 'drink')})` : ''}.`);
@@ -615,7 +932,7 @@ function holdUpTitle(a, g, drink) {
   if (g.stop) return g.title;
   if (g.lastOne) return 'You said the last one was the last one.';
   const after = a.pe + pintEq(unitsOf(drink.ml, drink.abv));
-  if (a.goal && after > a.goal.target + 0.25) return `You planned ${plural(a.goal.target, 'pint')}. This takes you to ≈${fmtPints(after)}.`;
+  if (a.goal && after > a.goal.target + PLAN_SLACK) return `You planned ${plural(a.goal.target, 'pint')}. This takes you to ≈${fmtPints(after)}.`;
   return null;
 }
 
@@ -774,6 +1091,19 @@ function renderNow(a) {
 
   // ---- What now: reasons, next-drink time, buttons ----
   renderClearCard(a);
+
+  // ---- Tomorrow + rotating nudges ----
+  const showStop = n >= 2 && !a.ended;
+  $('stopCard').hidden = !showStop;
+  if (showStop) {
+    $('stopCard').innerHTML = `<div class="tile-label">🌙 If you stop now</div>` +
+      stopNowLines(a, g).map(l => `<div class="stop-line">${l}</div>`).join('');
+  }
+  const tm = n && !showStop ? tomorrowNudge(a) : null;
+  const nudges = n ? pickNudges(a) : [];
+  $('nudgeCard').hidden = !tm && !nudges.length;
+  $('nudgeCard').innerHTML = [tm, ...nudges].filter(Boolean).map(x =>
+    `<div class="nudge"><span class="nudge-icon">${x.icon}</span><div>${x.label ? `<div class="tile-label">${x.label}</div>` : ''}${x.text}</div></div>`).join('');
 
   $('guideCard').innerHTML = `
     <div class="tile-label">${a.ended ? '🌙 Before bed' : '🧭 What now'}</div>
@@ -1018,7 +1348,7 @@ function renderHistory(a) {
   if (dp) ins.push(`You usually feel <b>drunk around ${fmtUnits(dp.units)} units</b> (from ${plural(dp.nights, 'night')}).`);
   const planned = keys.filter(k => state.goals[k] && GOALS[state.goals[k].type]).map(k => ({ g: state.goals[k], s: nightSummary(k) }));
   if (planned.length) {
-    const stuck = planned.filter(p => pintEq(p.s.units) <= p.g.target + 0.25).length;
+    const stuck = planned.filter(p => pintEq(p.s.units) <= p.g.target + PLAN_SLACK).length;
     ins.push(`Stuck to the plan on <b>${stuck} of ${plural(planned.length, 'night')}</b>.`);
     const quick = planned.filter(p => p.g.type === 'quick');
     const blown = quick.filter(p => pintEq(p.s.units) >= p.g.target + 2).length;
@@ -1040,7 +1370,7 @@ function renderHistory(a) {
     const s = nightSummary(k);
     const m = state.mornings[k];
     const gl = state.goals[k] && GOALS[state.goals[k].type] ? state.goals[k] : null;
-    const emojis = (gl ? GOALS[gl.type].emoji + (pintEq(s.units) <= gl.target + 0.25 ? '✅' : '❌') : '') + (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
+    const emojis = (gl ? GOALS[gl.type].emoji + (pintEq(s.units) <= gl.target + PLAN_SLACK ? '✅' : '❌') : '') + (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
     return `
       <li class="night">
         <button class="night-head" data-night="${k}">
