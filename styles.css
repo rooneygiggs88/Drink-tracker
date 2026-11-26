@@ -112,7 +112,7 @@ main { padding-bottom: calc(var(--tabs-h) + var(--safe-bottom) + 90px); }
 .btn-add span { font-size: 26px; margin-right: 4px; }
 .btn-add:active, .quick-btn:active { transform: scale(.97); }
 
-.quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+.quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
 .quick-btn {
   display: flex;
   flex-direction: column;
@@ -444,3 +444,13 @@ main { padding-bottom: calc(var(--tabs-h) + var(--safe-bottom) + 90px); }
 }
 .faces button span { font-size: 19px; font-weight: 700; }
 .faces button small { display: block; font-size: 13px; color: var(--muted); font-weight: 500; }
+
+.when { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.when button {
+  padding: 18px 10px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  font-size: 17px;
+  font-weight: 800;
+}
+.when button:first-child { background: var(--accent); color: var(--accent-ink); }

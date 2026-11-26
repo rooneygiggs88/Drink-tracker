@@ -9,10 +9,11 @@ const NIGHT_ROLLOVER_HOUR = 6;
 const CLEAR_RATE = 1;          // units the body clears per hour (UK rule of thumb)
 const KCAL_PER_UNIT = 56;      // 8g alcohol × 7 kcal
 const BIG_MAC_KCAL = 563;
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const CATS = [
   { id: 'pints',     label: 'Pints' },
+  { id: 'halves',    label: 'Halves' },
   { id: 'bottles',   label: 'Bottles & cans' },
   { id: 'wine',      label: 'Wine' },
   { id: 'shots',     label: 'Shots' },
@@ -115,6 +116,16 @@ const DEFAULT_LIBRARY = [
   { id: 'c-aperol',      cat: 'cocktails', name: 'Aperol spritz',    abv: 5.6, ml: 250, size: 'Cocktail', price: 9.50 },
 ];
 
+// Every pint also comes as a half (pubs charge a bit over half price).
+for (const d of DEFAULT_LIBRARY.filter(d => d.cat === 'pints')) {
+  DEFAULT_LIBRARY.push({ ...d, id: 'h' + d.id.slice(1), cat: 'halves', ml: 284, price: Math.round((d.price / 2 + 0.1) * 100) / 100 });
+}
+
+const FOOD_KINDS = {
+  snack: { emoji: '🍟', label: 'Snack', lasts: 2 },   // hours it meaningfully lines the stomach
+  meal:  { emoji: '🍽️', label: 'Meal',  lasts: 5 },
+};
+
 /* ---------------- Storage ---------------- */
 
 const store = {
@@ -134,6 +145,7 @@ const state = {
   library: [],
   log: [],          // drinks
   water: [],        // { id, ts }
+  food: [],         // { id, ts, kind: 'snack'|'meal' }
   checkins: [],     // { id, ts, level, units }
   mornings: {},     // nightKey -> level | 'skip'
   plans: {},        // nightKey -> home-time timestamp
@@ -142,13 +154,14 @@ const state = {
   editing: false,
   view: 'now',
   sheet: null,
-  lastAdded: null,  // { type: 'drink'|'water', id }
+  lastAdded: null,  // { type: 'drink'|'water'|'food', id }
   toastTimer: null,
 };
 
 function loadData() {
   state.log = store.get('log', []);
   state.water = store.get('water', []);
+  state.food = store.get('food', []);
   state.checkins = store.get('checkins', []);
   state.mornings = store.get('mornings', {});
   state.plans = store.get('plans', {});
@@ -188,6 +201,7 @@ const save = {
   library: () => store.set('library', state.library),
   log: () => store.set('log', state.log),
   water: () => store.set('water', state.water),
+  food: () => store.set('food', state.food),
   checkins: () => store.set('checkins', state.checkins),
   mornings: () => store.set('mornings', state.mornings),
   plans: () => store.set('plans', state.plans),
@@ -207,7 +221,7 @@ const plural = (n, word, many) => n + ' ' + (n === 1 ? word : (many || word + 's
 
 function kcalOf(cat, ml, abv) {
   const base = unitsOf(ml, abv) * KCAL_PER_UNIT;
-  const extra = { pints: ml * 0.14, bottles: ml * 0.14, wine: ml * 0.2, shots: 15, spirits: 80, cocktails: 130 }[cat] || 0;
+  const extra = { pints: ml * 0.14, halves: ml * 0.14, bottles: ml * 0.14, wine: ml * 0.2, shots: 15, spirits: 80, cocktails: 130 }[cat] || 0;
   return Math.round(base + extra);
 }
 
@@ -271,6 +285,16 @@ function unitsInSystem(entries, at) {
   return remaining;
 }
 
+// Most recent food that's still "lining the stomach" at time t, or null.
+function fedAt(t) {
+  let best = null;
+  for (const f of state.food) {
+    const age = t - f.ts;
+    if (age >= 0 && age <= FOOD_KINDS[f.kind].lasts * HOUR && (!best || f.ts > best.ts)) best = f;
+  }
+  return best;
+}
+
 function unitsLevel(units) {
   if (units >= state.settings.red) return 2;
   if (units >= state.settings.amber) return 1;
@@ -288,11 +312,13 @@ function howYouMightFeel(u) {
 }
 
 // Average night-total units at the first "Drunk" check-in, over the last 5 such nights.
-function personalDrunkPoint(excludeKey) {
+// fed: true/false limits it to check-ins made with/without food in you; undefined = all.
+function personalDrunkPoint(excludeKey, fed) {
   const byNight = new Map();
   for (const c of [...state.checkins].sort((a, b) => a.ts - b.ts)) {
     const k = nightKey(c.ts);
     if (k === excludeKey || c.level < DRUNK_LEVEL || byNight.has(k)) continue;
+    if (fed !== undefined && !!fedAt(c.ts) !== fed) continue;
     byNight.set(k, c.units);
   }
   const vals = [...byNight.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 5).map(x => x[1]);
@@ -303,9 +329,10 @@ function personalDrunkPoint(excludeKey) {
 function nightSummary(key) {
   const drinks = inNight(state.log, key);
   const water = inNight(state.water, key);
+  const food = inNight(state.food, key);
   const checkins = inNight(state.checkins, key);
   return {
-    key, drinks, water, checkins,
+    key, drinks, water, food, checkins,
     units: sum(drinks, e => e.units),
     kcal: sum(drinks, e => e.kcal),
     spend: sum(drinks, e => e.price),
@@ -353,10 +380,14 @@ function analyse() {
   const drinksSinceCheckin = lastCheckin ? s.drinks.filter(e => e.ts > lastCheckin.ts).length : n;
 
   const home = state.plans[key] || null;
-  const drunkPoint = personalDrunkPoint(key);
+  const fed = fedAt(now);
+  const lastFood = s.food.length ? s.food[s.food.length - 1] : null;
+  // Prefer the tipping point that matches whether you've eaten; fall back to all nights.
+  const matched = personalDrunkPoint(key, !!fed);
+  const drunkPoint = matched ? { ...matched, fed: !!fed } : personalDrunkPoint(key);
 
   return { now, key, s, n, first, last, elapsed, lastHour, avgGap, paceLevel, uLevel, level,
-           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint };
+           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood };
 }
 
 function headline(a) {
@@ -367,9 +398,11 @@ function headline(a) {
   if (a.uLevel === 2) return "That's a lot. Time to call it a night.";
   if (a.drunkPoint && s.units >= a.drunkPoint.units - 0.5) return 'This is about where you usually get drunk. Ease off.';
   if (a.paceLevel === 2) return `${a.lastHour} in the last hour. Slow right down.`;
+  if (n >= 3 && !a.lastFood) return `${n} drinks and no food yet. Get something in.`;
   if (a.drinksSinceWater >= 3) return 'Have a water before the next one.';
   if (a.uLevel === 1) return 'Steady on. Slow the pace.';
   if (a.paceLevel === 1) return 'Faster than one an hour. Ease off a bit.';
+  if (n >= 3 && !a.fed) return "It's been a while since you ate. Grab something.";
   if (now - a.last < 15 * MIN) return 'Make this one last.';
   return "You're doing fine. Keep it steady.";
 }
@@ -406,6 +439,16 @@ function logWater() {
   render();
 }
 
+function logFood(kind, hoursAgo) {
+  const entry = { id: uid(), ts: Date.now() - hoursAgo * HOUR, kind };
+  state.food.push(entry);
+  save.food();
+  state.lastAdded = { type: 'food', id: entry.id };
+  closeSheets();
+  showToast(`${FOOD_KINDS[kind].emoji} ${FOOD_KINDS[kind].label} logged. Sensible.`, true);
+  render();
+}
+
 function logFeeling(level) {
   const a = analyse();
   state.checkins.push({ id: uid(), ts: Date.now(), level, units: a.s.units, inSystem: a.inSystem });
@@ -418,6 +461,7 @@ function logFeeling(level) {
 function removeItem(type, id) {
   if (type === 'drink') { state.log = state.log.filter(e => e.id !== id); save.log(); }
   if (type === 'water') { state.water = state.water.filter(e => e.id !== id); save.water(); }
+  if (type === 'food')  { state.food = state.food.filter(e => e.id !== id); save.food(); }
   if (type === 'feel')  { state.checkins = state.checkins.filter(e => e.id !== id); save.checkins(); }
   render();
 }
@@ -475,8 +519,12 @@ function renderNow(a) {
     facts.push(fact('🫀', 'In your system',
       `~${fmtUnits(a.inSystem)} units · zero by ${fmtWhen(a.soberAt)}`,
       `Your body clears roughly ${CLEAR_RATE} unit an hour, so about ${fmtDur((a.inSystem / CLEAR_RATE) * HOUR)} if you stopped now. Every extra pint adds ~2½ hours.`));
+    const foodNote = a.fed
+      ? "You've eaten recently, so it'll creep up a bit slower."
+      : a.lastFood ? 'Your last food is wearing off, so drinks will start hitting harder.'
+      : 'On an empty stomach this hits harder and faster.';
     facts.push(fact('🧠', 'How you might feel', howYouMightFeel(a.inSystem),
-      'Typical effects — food, sleep, weight and mood all change it.'));
+      foodNote + ' Sleep, weight and mood change it too.'));
   }
 
   if (a.drunkPoint) {
@@ -484,7 +532,7 @@ function renderNow(a) {
     const where = gap > 0.5 ? `You're about ${fmtUnits(gap)} units away.` : "You're there now.";
     facts.push(fact('📍', 'Your tipping point',
       `You usually feel drunk around ${fmtUnits(a.drunkPoint.units)} units`,
-      `Based on ${plural(a.drunkPoint.nights, 'night')} of check-ins. ${where}`));
+      `Based on ${plural(a.drunkPoint.nights, 'night')} of check-ins${a.drunkPoint.fed === undefined ? '' : a.drunkPoint.fed ? ' when you\'d eaten' : ' on an empty stomach'}. ${where}`));
   }
 
   if (a.lastCheckin) {
@@ -509,8 +557,14 @@ function renderNow(a) {
   if (n) {
     facts.push(fact('💷', 'Spent', fmtMoney(s.spend) + (s.unpriced ? ` <span class="fact-sub">+ ${s.unpriced} unpriced</span>` : ''),
       s.unpriced ? 'Set prices in Add → ✎ Edit.' : 'Based on the prices in your library.'));
-    facts.push(fact('🍔', 'Calories', `${s.kcal.toLocaleString('en-GB')} kcal`,
+    facts.push(fact('🔥', 'Calories', `${s.kcal.toLocaleString('en-GB')} kcal`,
       `About ${(s.kcal / BIG_MAC_KCAL).toFixed(1)} Big Macs' worth.`));
+  }
+  if (n || s.food.length) {
+    const lf = a.lastFood;
+    facts.push(fact('🍔', 'Food',
+      lf ? `${FOOD_KINDS[lf.kind].label} at ${fmtTime(lf.ts)} · ${fmtAgo(a.now - lf.ts)}` : 'Nothing yet',
+      lf ? (a.fed ? 'Still lining your stomach.' : 'Probably wearing off by now.') : 'Food slows how fast the alcohol hits you.'));
   }
   if (n || s.water.length) {
     const ws = s.water.length;
@@ -616,6 +670,7 @@ function timelineRows(key, withDelete) {
   const rows = [
     ...inNight(state.log, key).map(e => ({ type: 'drink', e })),
     ...inNight(state.water, key).map(e => ({ type: 'water', e })),
+    ...inNight(state.food, key).map(e => ({ type: 'food', e })),
     ...inNight(state.checkins, key).map(e => ({ type: 'feel', e })),
   ].sort((a, b) => b.e.ts - a.e.ts);
 
@@ -627,6 +682,8 @@ function timelineRows(key, withDelete) {
       right = `<span class="log-units">${fmtUnits(e.units)}u</span>`;
     } else if (type === 'water') {
       name = '💧 Water'; meta = 'Nice one'; minor = true;
+    } else if (type === 'food') {
+      name = `${FOOD_KINDS[e.kind].emoji} ${FOOD_KINDS[e.kind].label}`; meta = 'Food'; minor = true;
     } else {
       const f = FEELINGS[e.level];
       name = `${f.emoji} Feeling ${f.label.toLowerCase()}`; meta = `at ${fmtUnits(e.units)} units`; minor = true;
@@ -668,6 +725,8 @@ function renderHistory(a) {
   const ins = [];
   const dp = personalDrunkPoint(null);
   if (dp) ins.push(`You usually feel <b>drunk around ${fmtUnits(dp.units)} units</b> (from ${plural(dp.nights, 'night')}).`);
+  const dpFed = personalDrunkPoint(null, true), dpEmpty = personalDrunkPoint(null, false);
+  if (dpFed && dpEmpty) ins.push(`With food in you that's <b>${fmtUnits(dpFed.units)} units</b>. On an empty stomach, <b>${fmtUnits(dpEmpty.units)}</b>.`);
   const rated = keys.filter(k => typeof state.mornings[k] === 'number').map(k => ({ lvl: state.mornings[k], s: nightSummary(k) }));
   const good = rated.filter(r => r.lvl <= 1), bad = rated.filter(r => r.lvl >= 2);
   if (good.length && bad.length) {
@@ -681,7 +740,7 @@ function renderHistory(a) {
   $('historyList').innerHTML = keys.map(k => {
     const s = nightSummary(k);
     const m = state.mornings[k];
-    const emojis = (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
+    const emojis = (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
     return `
       <li class="night">
         <button class="night-head" data-night="${k}">
@@ -722,6 +781,11 @@ function goTo(view, bump) {
 
 /* ---------------- Sheets ---------------- */
 
+function renderFoodKinds() {
+  $('foodKinds').innerHTML = Object.entries(FOOD_KINDS).map(([k, f]) =>
+    `<button type="button" class="chip${state.foodKind === k ? ' active' : ''}" data-kind="${k}">${f.emoji} ${f.label}</button>`).join('');
+}
+
 const openSheet = id => { $(id).hidden = false; };
 
 function closeSheets() {
@@ -761,7 +825,8 @@ function renderSheetChips() {
 
 // Best guess at the type from the size, until you pick one yourself.
 function catForMl(ml) {
-  if (ml === 568 || ml === 284) return 'pints';
+  if (ml === 568) return 'pints';
+  if (ml === 284) return 'halves';
   if (ml >= 275 && ml <= 500) return 'bottles';
   if (ml >= 125 && ml <= 250) return 'wine';
   return 'spirits';
@@ -835,7 +900,7 @@ function setHome(hhmm) {
 async function exportData() {
   const data = JSON.stringify({
     app: 'drink-tracker', version: DB_VERSION, exported: new Date().toISOString(),
-    library: state.library, log: state.log, water: state.water, checkins: state.checkins,
+    library: state.library, log: state.log, water: state.water, food: state.food, checkins: state.checkins,
     mornings: state.mornings, plans: state.plans, settings: state.settings,
   }, null, 2);
   const name = 'drink-tracker-' + new Date().toISOString().slice(0, 10) + '.json';
@@ -866,6 +931,7 @@ function importData(file) {
       const added = mergeById(state.log, data.log);
       mergeById(state.library, data.library);
       mergeById(state.water, data.water);
+      mergeById(state.food, data.food);
       mergeById(state.checkins, data.checkins);
       state.mornings = { ...(data.mornings || {}), ...state.mornings };
       state.plans = { ...(data.plans || {}), ...state.plans };
@@ -890,6 +956,19 @@ function bind() {
   // Now screen
   $('goAdd').addEventListener('click', () => goTo('add'));
   $('waterBtn').addEventListener('click', logWater);
+  $('foodBtn').addEventListener('click', () => {
+    state.foodKind = 'meal';
+    renderFoodKinds();
+    openSheet('foodSheet');
+  });
+  $('foodKinds').addEventListener('click', e => {
+    const b = e.target.closest('[data-kind]');
+    if (b) { state.foodKind = b.dataset.kind; renderFoodKinds(); }
+  });
+  $('foodWhen').addEventListener('click', e => {
+    const b = e.target.closest('[data-ago]');
+    if (b) logFood(state.foodKind, Number(b.dataset.ago));
+  });
   $('feelBtn').addEventListener('click', () => openSheet('feelSheet'));
   $('homeBtn').addEventListener('click', openHomeSheet);
   $('checkinCard').addEventListener('click', e => {
@@ -949,10 +1028,10 @@ function bind() {
     const del = e.target.closest('[data-del]');
     if (del) {
       const type = del.dataset.type;
-      const src = { drink: state.log, water: state.water, feel: state.checkins }[type];
+      const src = { drink: state.log, water: state.water, food: state.food, feel: state.checkins }[type];
       const item = src.find(x => x.id === del.dataset.del);
       if (!item) return;
-      const label = type === 'drink' ? item.name : type === 'water' ? 'water' : 'check-in';
+      const label = type === 'drink' ? item.name : type === 'feel' ? 'check-in' : type;
       if (confirm(`Remove ${label} (${fmtTime(item.ts)})?`)) removeItem(type, item.id);
       return;
     }

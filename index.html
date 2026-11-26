@@ -41,8 +41,9 @@
         <button class="btn-add" id="goAdd"><span>+</span> Add drink</button>
         <div class="quick">
           <button class="quick-btn" id="waterBtn">💧<span>Water</span></button>
+          <button class="quick-btn" id="foodBtn">🍔<span>Food</span></button>
           <button class="quick-btn" id="feelBtn">🫠<span>Feeling?</span></button>
-          <button class="quick-btn" id="homeBtn">🏠<span>Home time</span></button>
+          <button class="quick-btn" id="homeBtn">🏠<span>Home</span></button>
         </div>
 
         <ul class="facts" id="facts"></ul>
@@ -152,6 +153,24 @@
       </div>
       <p class="sheet-note">Be honest. Over a few nights this learns where <i>your</i> tipping point is.</p>
       <div class="faces" id="feelFaces"></div>
+    </div>
+  </div>
+
+  <!-- Food sheet -->
+  <div class="sheet-backdrop" id="foodSheet" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>Had some food?</h2>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
+      </div>
+      <p class="sheet-note">Food slows how fast alcohol hits you. Ate before coming out? Log that too.</p>
+      <div class="chips big" id="foodKinds"></div>
+      <div class="when" id="foodWhen">
+        <button type="button" data-ago="0">Just now</button>
+        <button type="button" data-ago="1">1 hour ago</button>
+        <button type="button" data-ago="2">2 hours ago</button>
+        <button type="button" data-ago="3">3+ hours ago</button>
+      </div>
     </div>
   </div>
 
