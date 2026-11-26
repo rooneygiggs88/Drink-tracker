@@ -496,3 +496,50 @@ button.tile:active { transform: scale(.97); }
 .feel-line { font-size: 15px; }
 .feel-line b { color: var(--accent); }
 .feel-note { font-size: 13px; color: var(--muted); }
+
+/* ---------- Guidance ---------- */
+.card.guide { margin-top: 0; border-color: var(--line); }
+.guide-next {
+  margin-top: 8px;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.guide-next b { color: var(--accent); }
+.guide-why { list-style: none; margin: 10px 0 0; padding: 0; }
+.guide-why li {
+  position: relative;
+  padding: 7px 0 7px 16px;
+  font-size: 15px;
+  line-height: 1.4;
+  border-top: 1px solid var(--line);
+}
+.guide-why li::before { content: ''; position: absolute; left: 2px; top: 15px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.guide-why b { color: var(--text); }
+.guide-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.guide-btn {
+  flex: 1 1 auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 15px;
+  font-weight: 800;
+}
+.guide-btn.stop { background: var(--lvl-2); color: #fff; flex-basis: 100%; }
+.btn-done {
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+.setting select {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+}

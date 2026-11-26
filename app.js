@@ -9,7 +9,7 @@ const NIGHT_ROLLOVER_HOUR = 6;
 const CLEAR_RATE = 1;          // units the body clears per hour (UK rule of thumb)
 const KCAL_PER_UNIT = 56;      // 8g alcohol × 7 kcal
 const BIG_MAC_KCAL = 563;
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const CATS = [
   { id: 'pints',     label: 'Pints' },
@@ -52,7 +52,8 @@ const MORNINGS = [
   { emoji: '☠️', label: 'Never again' },
 ];
 
-const DEFAULT_SETTINGS = { amber: 6, red: 10 };
+const DEFAULT_SETTINGS = { amber: 6, red: 10, checkEvery: 1 };   // checkEvery: ask how you feel every N drinks (0 = never)
+const PINT_UNITS = 2.4;
 
 // ABVs are typical UK figures; prices are rough UK pub averages.
 // Both are editable in the app.
@@ -149,6 +150,7 @@ const state = {
   checkins: [],     // { id, ts, level, units }
   mornings: {},     // nightKey -> level | 'skip'
   plans: {},        // nightKey -> home-time timestamp
+  ended: {},        // nightKey -> when you said you were done
   settings: { ...DEFAULT_SETTINGS },
   cat: null,
   editing: false,
@@ -166,6 +168,7 @@ function loadData() {
   state.checkins = store.get('checkins', []);
   state.mornings = store.get('mornings', {});
   state.plans = store.get('plans', {});
+  state.ended = store.get('ended', {});
   state.settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
 
   const library = store.get('library', []);
@@ -206,6 +209,7 @@ const save = {
   checkins: () => store.set('checkins', state.checkins),
   mornings: () => store.set('mornings', state.mornings),
   plans: () => store.set('plans', state.plans),
+  ended: () => store.set('ended', state.ended),
   settings: () => store.set('settings', state.settings),
 };
 
@@ -357,7 +361,8 @@ function analyse() {
   const n = s.drinks.length;
   const first = n ? s.drinks[0].ts : null;
   const last = n ? s.drinks[n - 1].ts : null;
-  const elapsed = n ? now - first : 0;
+  const ended = n && state.ended[key] ? state.ended[key] : null;
+  const elapsed = n ? (ended || now) - first : 0;
   const lastHour = s.drinks.filter(e => now - e.ts <= HOUR).length;
   const avgGap = n >= 2 ? elapsed / n : null;
 
@@ -388,29 +393,148 @@ function analyse() {
   const drunkPoint = matched ? { ...matched, fed: !!fed } : personalDrunkPoint(key);
 
   return { now, key, s, n, first, last, elapsed, lastHour, avgGap, paceLevel, uLevel, level,
-           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood };
+           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended };
 }
 
-function headline(a) {
-  const { n, s, now } = a;
-  if (!n) return a.inSystem > 0.5 ? 'Still some of last night in you. Take it easy.' : 'Nothing yet. Enjoy it.';
-  if (a.home && now > a.home) return "It's past your home time. Time to go.";
-  if (s.units >= state.settings.red * 1.5) return 'Way past your limit. Water, then home.';
-  if (a.uLevel === 2) return "That's a lot. Time to call it a night.";
-  if (a.drunkPoint && s.units >= a.drunkPoint.units - 0.5) return 'This is about where you usually get drunk. Ease off.';
-  if (a.paceLevel === 2) return `${a.lastHour} in the last hour. Slow right down.`;
-  if (n >= 3 && !a.lastFood) return `${n} drinks and no food yet. Get something in.`;
-  if (a.drinksSinceWater >= 3) return 'Have a water before the next one.';
-  if (a.uLevel === 1) return 'Steady on. Slow the pace.';
-  if (a.paceLevel === 1) return 'Faster than one an hour. Ease off a bit.';
-  if (n >= 3 && !a.fed) return "It's been a while since you ate. Grab something.";
-  if (now - a.last < 15 * MIN) return 'Make this one last.';
-  return "You're doing fine. Keep it steady.";
+function pintsLeftText(unitsLeft) {
+  const halves = Math.floor(unitsLeft / (PINT_UNITS / 2));
+  if (halves < 1) return 'less than a half';
+  if (halves === 1) return 'one half';
+  const pints = Math.floor(halves / 2);
+  return `${plural(pints, 'pint')} (${halves} halves)`;
 }
+
+/* The guidance engine: weighs everything and decides one thing to do next.
+   Returns { title, reasons[], next (html), actions[] }. */
+function guidance(a) {
+  const { n, s, now } = a;
+  const R = state.settings.red, A = state.settings.amber, u = s.units;
+  const c = a.lastCheckin, fl = c ? c.level : null;
+  const dp = a.drunkPoint;
+  const reasons = [];
+  const actions = new Set();
+
+  // ---- Finished for the night: recovery mode ----
+  if (a.ended) {
+    reasons.push(`Final tally: <b>${plural(n, 'drink')}, ${fmtUnits(u)} units</b>, ${fmtMoney(s.spend)}.`);
+    reasons.push('<b>A pint of water before bed</b>, and keep one next to you.');
+    if (!a.fed) reasons.push('<b>Eat something</b> if you can. Toast beats a kebab, but either beats nothing.');
+    if (a.inSystem > 0.05) reasons.push(`Still ~<b>${fmtUnits(a.inSystem)} units</b> in you. Back to zero around <b>${fmtWhen(a.soberAt)}</b> — no driving before then, and be cautious after.`);
+    reasons.push("Tomorrow we'll ask how the head is.");
+    return { title: 'Done for the night. Good call.', reasons, next: '', actions: ['water', 'food', 'undone'] };
+  }
+
+  // ---- Not started ----
+  if (!n) {
+    if (a.inSystem > 0.5) {
+      return { title: 'Still some of last night in you. Take it easy.',
+        reasons: [`~<b>${fmtUnits(a.inSystem)} units</b> left, back to zero around <b>${fmtWhen(a.soberAt)}</b>.`], next: '', actions: ['water', 'food'] };
+    }
+    return { title: 'Nothing yet. Enjoy it.', next: '', actions: a.home ? ['food'] : ['home', 'food'], reasons: [
+      'Set a <b>home time</b> now, while you\'re sensible.',
+      '<b>Eat before you start.</b> It slows everything down.',
+      'Halves and a water every couple of drinks make the night last longer.',
+    ] };
+  }
+
+  // ---- Signals ----
+  const pastHome = a.home && now > a.home;
+  const wrecked = fl === 4;
+  const drunk = fl === 3;
+  const atTipping = dp && u >= dp.units - 0.5;
+  const noFood = n >= 3 && !a.lastFood;
+  const foodGone = n >= 3 && a.lastFood && !a.fed;
+  const waterDue = a.drinksSinceWater >= 3;
+  const feltEarly = fl != null && fl >= 2 && c.units < (dp ? dp.units * 0.7 : A * 0.7);
+  const fineButHigh = fl != null && fl <= 1 && u >= A && now - c.ts < 90 * MIN;
+
+  const stop = wrecked || u >= R * 1.5 || pastHome || (drunk && u >= R);
+  const lastOne = !stop && (u >= R || drunk || atTipping);
+
+  // ---- When could the next one be? Aim for no faster than one an hour. ----
+  let nextAt = null;
+  if (!stop && !lastOne) {
+    let gap = 60 * MIN;
+    if (a.uLevel === 1 || feltEarly) gap = 75 * MIN;
+    if (a.paceLevel === 2) gap = 90 * MIN;
+    nextAt = a.last + gap;
+  }
+
+  // ---- The one thing to do ----
+  let title;
+  if (stop) title = pastHome ? "Past your home time. Get your coat."
+    : wrecked ? 'You said wrecked. Stop now: water, then home.'
+    : 'Stop now. Water, then home.';
+  else if (lastOne) title = drunk ? 'You said drunk. Make this your last one.'
+    : atTipping ? 'This is where you usually get drunk. Make it the last.'
+    : "You're in the red. Make this your last one.";
+  else if (noFood) title = 'Eat something before the next drink.';
+  else if (a.paceLevel === 2) title = `Slow right down. Nothing before ${fmtTime(nextAt)}.`;
+  else if (waterDue) title = 'Water before the next one.';
+  else if (feltEarly) title = "You're feeling it early tonight. Take it slow.";
+  else if (fineButHigh) title = "You feel fine, but it's still catching up. Slow down.";
+  else if (a.uLevel === 1) title = 'Steady on. Halves or water from here.';
+  else if (a.paceLevel === 1) title = `Bit quick. Next one not before ${fmtTime(nextAt)}.`;
+  else if (foodGone) title = "Your food's worn off. Grab something.";
+  else if (now - a.last < 15 * MIN) title = 'Make this one last.';
+  else title = "You're doing fine. Keep it steady.";
+
+  // ---- Why ----
+  if (u >= R) reasons.push(`<b>${fmtUnits(u)} units</b>: ${fmtUnits(u - R)} past your red line of ${R}.`);
+  else reasons.push(`<b>${fmtUnits(u)} units</b>${u >= A ? ' (amber)' : ''}. About <b>${pintsLeftText(R - u)}</b> before red.`);
+
+  if (c) {
+    const f = FEELINGS[fl];
+    let t = `You said <b>${f.label.toLowerCase()}</b> at ${fmtTime(c.ts)}, on ${fmtUnits(c.units)} units.`;
+    if (feltEarly) t += " That's early for you.";
+    if (fineButHigh) t += ' Alcohol keeps rising for 30–90 minutes after a drink, so feeling fine lags behind.';
+    reasons.push(t);
+  }
+  if (dp && !atTipping) reasons.push(`You usually feel drunk around <b>${fmtUnits(dp.units)} units</b>${dp.fed === undefined ? '' : dp.fed ? ' when fed' : ' on an empty stomach'}. ${fmtUnits(dp.units - u)} to go.`);
+  else if (dp) reasons.push(`You usually feel drunk around <b>${fmtUnits(dp.units)} units</b>. You're there.`);
+  if (a.paceLevel >= 1) reasons.push(`<b>${plural(a.lastHour, 'drink')} in the last hour.</b> Your body clears ~1 unit an hour; a pint takes ~2½.`);
+  if (noFood) reasons.push('<b>Nothing eaten.</b> On an empty stomach it hits harder and faster.');
+  else if (foodGone) reasons.push(`<b>Last ate ${fmtAgo(now - a.lastFood.ts)}.</b> That's stopped helping.`);
+  if (waterDue) reasons.push(`<b>${a.drinksSinceWater} drinks since your last water.</b>`);
+  if (pastHome) reasons.push(`Home time was <b>${fmtTime(a.home)}</b>, ${fmtAgo(now - a.home)}.`);
+  else if (a.home && a.avgGap && n >= 2) {
+    const more = Math.floor((a.home - now) / a.avgGap);
+    reasons.push(`At this pace: <b>~${plural(more, 'more drink')}</b> by ${fmtTime(a.home)}, ending on ~${fmtUnits(u + more * (u / n))} units.`);
+  }
+
+  // ---- What you can do about it ----
+  if (stop || lastOne) { actions.add('done'); actions.add('water'); }
+  if (noFood || foodGone) actions.add('food');
+  if (waterDue) actions.add('water');
+  if (!stop && !lastOne && (a.uLevel >= 1 || a.paceLevel >= 1 || feltEarly || fineButHigh)) actions.add('halves');
+
+  let next;
+  if (stop) next = '⛔ <b>No more tonight.</b>';
+  else if (lastOne) next = '⛔ <b>After this one, no more.</b>';
+  else if (nextAt > now) next = `⏳ Next drink not before <b>${fmtTime(nextAt)}</b> · ${fmtDur(nextAt - now)} to wait`;
+  else next = '⏳ No rush. Keep it to one an hour.';
+
+  return { title, reasons: reasons.slice(0, 5), next, actions: [...actions] };
+}
+
+const GUIDE_ACTIONS = {
+  water:  '💧 Have a water',
+  food:   '🍔 Log food',
+  halves: '🍺 Switch to halves',
+  home:   '🏠 Set home time',
+  done:   "🛑 I'm done for the night",
+  undone: '↩︎ Not done after all',
+};
 
 /* ---------------- Logging ---------------- */
 
 function logDrink(drink) {
+  const key = nightKey(Date.now());
+  if (state.ended[key] && inNight(state.log, key).length) {
+    if (!confirm(`You called it a night at ${fmtTime(state.ended[key])}. Sure you want another?`)) return goTo('now');
+    delete state.ended[key];
+    save.ended();
+  }
   const entry = {
     id: uid(),
     drinkId: drink.id,
@@ -429,6 +553,19 @@ function logDrink(drink) {
   state.lastAdded = { type: 'drink', id: entry.id };
   showToast(drink.name + ' added', true);
   goTo('now', true);
+}
+
+function setDone(done) {
+  const key = nightKey(Date.now());
+  if (done) {
+    state.ended[key] = Date.now();
+    state.lastAdded = { type: 'ended', id: key };
+    showToast('🛑 Done for the night. Good call.', true);
+  } else {
+    delete state.ended[key];
+  }
+  save.ended();
+  goTo('now');
 }
 
 function logWater() {
@@ -462,6 +599,7 @@ function logFeeling(level) {
 function removeItem(type, id) {
   if (type === 'drink') { state.log = state.log.filter(e => e.id !== id); save.log(); }
   if (type === 'water') { state.water = state.water.filter(e => e.id !== id); save.water(); }
+  if (type === 'ended') { delete state.ended[id]; save.ended(); }
   if (type === 'food')  { state.food = state.food.filter(e => e.id !== id); save.food(); }
   if (type === 'feel')  { state.checkins = state.checkins.filter(e => e.id !== id); save.checkins(); }
   render();
@@ -503,27 +641,42 @@ function tile(icon, label, value, sub, warn = 0, action = '') {
 function renderNow(a) {
   const { s, n } = a;
   setLevelClass($('panel'), a.level);
-  $('nowDate').textContent = 'Tonight · ' + fmtNight(a.key);
+  $('nowDate').textContent = 'Tonight · ' + fmtNight(a.key) + (a.ended ? ' · done at ' + fmtTime(a.ended) : '');
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
-  $('nowHeadline').textContent = headline(a);
+  const g = guidance(a);
+  $('nowHeadline').textContent = g.title;
 
   renderMorningCard(a);
   renderCheckinCard(a);
 
+  // ---- What now: reasons, next-drink time, buttons ----
+  $('guideCard').innerHTML = `
+    <div class="tile-label">${a.ended ? '🌙 Before bed' : '🧭 What now'}</div>
+    ${g.next ? `<div class="guide-next">${g.next}</div>` : ''}
+    <ul class="guide-why">${g.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+    ${g.actions.length ? `<div class="guide-actions">${g.actions.map(k =>
+      `<button class="guide-btn${k === 'done' ? ' stop' : ''}" data-guide="${k}">${GUIDE_ACTIONS[k]}</button>`).join('')}</div>` : ''}`;
+
+  $('goAdd').innerHTML = a.ended ? '<span>+</span> Add drink anyway' : '<span>+</span> Add drink';
+  $('doneBtn').hidden = !n || !!a.ended || g.actions.includes('done');
+
   // ---- Tiles: numbers you can read at a glance ----
   const tiles = [];
   if (n) {
-    tiles.push(tile('⏱️', 'Out for', fmtDur(a.elapsed), `since ${fmtTime(a.first)}`));
-    tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
+    tiles.push(a.ended
+      ? tile('⏱️', 'Session', fmtDur(a.elapsed), `${fmtTime(a.first)}–${fmtTime(a.ended)}`)
+      : tile('⏱️', 'Out for', fmtDur(a.elapsed), `since ${fmtTime(a.first)}`));
+    if (!a.ended) tiles.push(tile('🍺', 'Pace', a.avgGap ? fmtDur(a.avgGap) : '—',
       a.avgGap ? `per drink · ${a.lastHour} in last hr` : `${a.lastHour} in last hr`, a.paceLevel));
   }
   if (a.inSystem > 0.05) {
     tiles.push(tile('🫀', 'In system', `${fmtUnits(a.inSystem)}u`, `zero ${fmtWhen(a.soberAt)}`));
   }
   if (n) {
-    if (a.home) {
+    if (a.ended) { /* home time no longer matters */ }
+    else if (a.home) {
       const left = a.home - a.now;
       tiles.push(left > 0
         ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 0, 'home')
@@ -552,19 +705,6 @@ function renderNow(a) {
       : 'On an empty stomach this hits harder and faster.';
     lines.push(`<p class="feel-main">${howYouMightFeel(a.inSystem)}</p><p class="feel-note">${foodNote}</p>`);
   }
-  if (a.drunkPoint) {
-    const gap = a.drunkPoint.units - s.units;
-    const ctx = a.drunkPoint.fed === undefined ? '' : a.drunkPoint.fed ? ' when you\'ve eaten' : ' on an empty stomach';
-    lines.push(`<p class="feel-line">📍 You usually feel drunk around <b>${fmtUnits(a.drunkPoint.units)} units</b>${ctx}. ${gap > 0.5 ? `About <b>${fmtUnits(gap)}</b> to go.` : '<b>You\'re there.</b>'}</p>`);
-  }
-  if (a.lastCheckin) {
-    const f = FEELINGS[a.lastCheckin.level];
-    lines.push(`<p class="feel-line">${f.emoji} You said <b>${f.label.toLowerCase()}</b> at ${fmtTime(a.lastCheckin.ts)}, on ${fmtUnits(a.lastCheckin.units)} units.</p>`);
-  }
-  if (a.home && a.now < a.home && a.avgGap && n >= 2) {
-    const more = Math.floor((a.home - a.now) / a.avgGap);
-    lines.push(`<p class="feel-line">🏠 At this pace that's <b>~${plural(more, 'more drink')}</b> by ${fmtTime(a.home)}, finishing on <b>~${fmtUnits(s.units + more * (s.units / n))} units</b>.</p>`);
-  }
   if (a.inSystem > 0.05) {
     lines.push(`<p class="feel-note">Your body clears about ${CLEAR_RATE} unit an hour. Every extra pint adds ~2½ hours.</p>`);
   }
@@ -574,14 +714,15 @@ function renderNow(a) {
 
 function renderCheckinCard(a) {
   const card = $('checkinCard');
-  // After your 2nd drink, then every 3 drinks since your last check-in (or "not now").
-  const snoozed = state.snooze && state.snooze.key === a.key && a.n - state.snooze.n < 3;
-  const due = !snoozed && a.n >= 2 && a.drinksSinceCheckin >= (a.lastCheckin ? 3 : 2);
+  const every = state.settings.checkEvery;
+  // Every N drinks since your last check-in (N from settings). "Not now" waits for the next N.
+  const snoozed = state.snooze && state.snooze.key === a.key && a.n - state.snooze.n < every;
+  const due = every > 0 && !a.ended && !snoozed && a.n >= every && a.drinksSinceCheckin >= every;
   card.hidden = !due;
   if (!due) return;
   card.innerHTML = `
-    <div class="prompt-title">Quick check: how are you feeling?</div>
-    <div class="prompt-sub">One tap. It teaches the app where your tipping point is.</div>
+    <div class="prompt-title">How are you feeling?</div>
+    <div class="prompt-sub">After drink ${a.n}. One tap, and the guidance takes it into account.</div>
     <div class="prompt-faces">${FEELINGS.map((f, i) =>
       `<button data-feel="${i}">${f.emoji}<span>${f.label}</span></button>`).join('')}</div>
     <button class="prompt-skip" data-snooze="1">Not now</button>`;
@@ -754,6 +895,7 @@ function renderHistory(a) {
 
   if (document.activeElement !== $('setAmber')) $('setAmber').value = state.settings.amber;
   if (document.activeElement !== $('setRed')) $('setRed').value = state.settings.red;
+  $('setCheck').value = String(state.settings.checkEvery);
 }
 
 function render() {
@@ -901,7 +1043,7 @@ async function exportData() {
   const data = JSON.stringify({
     app: 'drink-tracker', version: DB_VERSION, exported: new Date().toISOString(),
     library: state.library, log: state.log, water: state.water, food: state.food, checkins: state.checkins,
-    mornings: state.mornings, plans: state.plans, settings: state.settings,
+    mornings: state.mornings, plans: state.plans, ended: state.ended, settings: state.settings,
   }, null, 2);
   const name = 'drink-tracker-' + new Date().toISOString().slice(0, 10) + '.json';
   const file = new File([data], name, { type: 'application/json' });
@@ -935,6 +1077,7 @@ function importData(file) {
       mergeById(state.checkins, data.checkins);
       state.mornings = { ...(data.mornings || {}), ...state.mornings };
       state.plans = { ...(data.plans || {}), ...state.plans };
+      state.ended = { ...(data.ended || {}), ...state.ended };
       Object.values(save).forEach(f => f());
       showToast('Imported ' + plural(added, 'drink'), false);
       render();
@@ -955,6 +1098,22 @@ function bind() {
 
   // Now screen
   $('goAdd').addEventListener('click', () => goTo('add'));
+  $('doneBtn').addEventListener('click', () => setDone(true));
+  $('guideCard').addEventListener('click', e => {
+    const b = e.target.closest('[data-guide]');
+    if (!b) return;
+    const k = b.dataset.guide;
+    if (k === 'water') logWater();
+    if (k === 'food') $('foodBtn').click();
+    if (k === 'home') openHomeSheet();
+    if (k === 'halves') { state.cat = 'halves'; goTo('add'); }
+    if (k === 'done') setDone(true);
+    if (k === 'undone') setDone(false);
+  });
+  $('setCheck').addEventListener('change', e => {
+    state.settings.checkEvery = Number(e.target.value);
+    save.settings();
+  });
   $('waterBtn').addEventListener('click', logWater);
   $('foodBtn').addEventListener('click', () => {
     state.foodKind = 'meal';
@@ -1101,7 +1260,7 @@ function bind() {
     const amber = parseNum($('setAmber').value);
     const red = parseNum($('setRed').value);
     if (amber > 0 && red > amber) {
-      state.settings = { amber, red };
+      state.settings = { ...state.settings, amber, red };
       save.settings();
       renderBar(analyse());
     } else {

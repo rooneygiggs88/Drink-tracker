@@ -37,8 +37,10 @@
       <div class="now-body">
         <div class="card prompt" id="morningCard" hidden></div>
         <div class="card prompt" id="checkinCard" hidden></div>
+        <div class="card guide" id="guideCard"></div>
 
         <button class="btn-add" id="goAdd"><span>+</span> Add drink</button>
+        <button class="btn-done" id="doneBtn" hidden>🛑 I'm done for the night</button>
         <div class="quick">
           <button class="quick-btn" id="waterBtn">💧<span>Water</span></button>
           <button class="quick-btn" id="foodBtn">🍔<span>Food</span></button>
@@ -72,11 +74,19 @@
       <ul class="nights" id="historyList"></ul>
       <p class="empty" id="historyEmpty">No history yet.</p>
 
-      <h3 class="section-title">Traffic light</h3>
+      <h3 class="section-title">Settings</h3>
       <div class="card settings">
         <label class="setting"><span><i class="dot lvl-1"></i>Amber from</span><input id="setAmber" type="text" inputmode="decimal"> units</label>
         <label class="setting"><span><i class="dot lvl-2"></i>Red from</span><input id="setRed" type="text" inputmode="decimal"> units</label>
-        <p class="setting-note">Units drunk in one night. Pace also turns things amber if you're going faster than one drink an hour.</p>
+        <label class="setting"><span>🫠 Ask how I'm feeling</span>
+          <select id="setCheck">
+            <option value="1">Every drink</option>
+            <option value="2">Every 2 drinks</option>
+            <option value="3">Every 3 drinks</option>
+            <option value="0">Never</option>
+          </select>
+        </label>
+        <p class="setting-note">Amber and red are units drunk in one night. Pace also turns things amber if you're going faster than one drink an hour.</p>
       </div>
 
       <h3 class="section-title">Backup</h3>
