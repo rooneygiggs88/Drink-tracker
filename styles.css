@@ -543,3 +543,48 @@ button.tile:active { transform: scale(.97); }
   color: var(--text);
   font-size: 16px;
 }
+
+/* ---------- Night plan ---------- */
+.panel-plan {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.22);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+.plans { display: grid; gap: 8px; margin-top: 14px; }
+.plan-opt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 2px solid transparent;
+  text-align: left;
+}
+.plan-opt.active { border-color: var(--accent); }
+.plan-emoji { font-size: 30px; }
+.plan-opt b { display: block; font-size: 17px; }
+.plan-opt small { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.plan-aim {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 16px;
+  font-size: 17px;
+  color: var(--muted);
+}
+.plan-aim b { font-size: 32px; color: var(--text); min-width: 36px; text-align: center; }
+.aim-btn {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  font-size: 24px;
+  font-weight: 800;
+}
+.chip.toggle { display: block; margin: 14px auto 0; padding: 11px 16px; font-size: 15px; }

@@ -9,7 +9,7 @@ const NIGHT_ROLLOVER_HOUR = 6;
 const CLEAR_RATE = 1;          // units the body clears per hour (UK rule of thumb)
 const KCAL_PER_UNIT = 56;      // 8g alcohol × 7 kcal
 const BIG_MAC_KCAL = 563;
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const CATS = [
   { id: 'pints',     label: 'Pints' },
@@ -51,6 +51,14 @@ const MORNINGS = [
   { emoji: '🤢', label: 'Hanging' },
   { emoji: '☠️', label: 'Never again' },
 ];
+
+// What kind of night is it? Each sets a drinks target and the tone of the guidance.
+const GOALS = {
+  quick:  { emoji: '🍻', label: 'Couple after work', sub: 'In, a couple, home',     target: 2, tone: 'light' },
+  home:   { emoji: '🏠', label: 'Night in',          sub: 'A few on the sofa',      target: 3, tone: 'light' },
+  social: { emoji: '🍽️', label: 'Dinner / catch-up', sub: 'Sociable, not messy',    target: 4, tone: 'mid' },
+  big:    { emoji: '🎉', label: 'Big night out',     sub: 'Going for it, safely',   target: 8, tone: 'big' },
+};
 
 const DEFAULT_SETTINGS = { amber: 6, red: 10, checkEvery: 1 };   // checkEvery: ask how you feel every N drinks (0 = never)
 const PINT_UNITS = 2.4;
@@ -151,6 +159,7 @@ const state = {
   mornings: {},     // nightKey -> level | 'skip'
   plans: {},        // nightKey -> home-time timestamp
   ended: {},        // nightKey -> when you said you were done
+  goals: {},        // nightKey -> { type, target, work }
   settings: { ...DEFAULT_SETTINGS },
   cat: null,
   editing: false,
@@ -169,6 +178,7 @@ function loadData() {
   state.mornings = store.get('mornings', {});
   state.plans = store.get('plans', {});
   state.ended = store.get('ended', {});
+  state.goals = store.get('goals', {});
   state.settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
 
   const library = store.get('library', []);
@@ -210,6 +220,7 @@ const save = {
   mornings: () => store.set('mornings', state.mornings),
   plans: () => store.set('plans', state.plans),
   ended: () => store.set('ended', state.ended),
+  goals: () => store.set('goals', state.goals),
   settings: () => store.set('settings', state.settings),
 };
 
@@ -300,9 +311,17 @@ function fedAt(t) {
   return best;
 }
 
-function unitsLevel(units) {
-  if (units >= state.settings.red) return 2;
-  if (units >= state.settings.amber) return 1;
+// Amber/red lines in units: from tonight's plan if there is one, else from settings.
+function goalLimits(goal) {
+  if (!goal || !GOALS[goal.type]) return { amber: state.settings.amber, red: state.settings.red };
+  const red = Math.round((goal.target * PINT_UNITS * 1.15 + 0.3) * 10) / 10;
+  const amber = Math.round(Math.min(red - PINT_UNITS, red * 0.6) * 10) / 10;
+  return { amber, red };
+}
+
+function unitsLevel(units, lim) {
+  if (units >= lim.red) return 2;
+  if (units >= lim.amber) return 1;
   return 0;
 }
 
@@ -371,7 +390,9 @@ function analyse() {
   if (lastHour >= 3) paceLevel = 2;
   else if (lastHour === 2 || (n >= 3 && avgGap < 45 * MIN)) paceLevel = 1;
 
-  const uLevel = unitsLevel(s.units);
+  const goal = state.goals[key] && GOALS[state.goals[key].type] ? state.goals[key] : null;
+  const lim = goalLimits(goal);
+  const uLevel = unitsLevel(s.units, lim);
   // Overall light: units decide, but a fast pace can push green to amber.
   const level = n ? Math.max(uLevel, Math.min(paceLevel, 1)) : -1;
 
@@ -393,7 +414,7 @@ function analyse() {
   const drunkPoint = matched ? { ...matched, fed: !!fed } : personalDrunkPoint(key);
 
   return { now, key, s, n, first, last, elapsed, lastHour, avgGap, paceLevel, uLevel, level,
-           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended };
+           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim };
 }
 
 function pintsLeftText(unitsLeft) {
@@ -408,7 +429,8 @@ function pintsLeftText(unitsLeft) {
    Returns { title, reasons[], next (html), actions[] }. */
 function guidance(a) {
   const { n, s, now } = a;
-  const R = state.settings.red, A = state.settings.amber, u = s.units;
+  const R = a.lim.red, A = a.lim.amber, u = s.units;
+  const goal = a.goal, G = goal ? GOALS[goal.type] : null, tone = G ? G.tone : 'mid';
   const c = a.lastCheckin, fl = c ? c.level : null;
   const dp = a.drunkPoint;
   const reasons = [];
@@ -430,7 +452,14 @@ function guidance(a) {
       return { title: 'Still some of last night in you. Take it easy.',
         reasons: [`~<b>${fmtUnits(a.inSystem)} units</b> left, back to zero around <b>${fmtWhen(a.soberAt)}</b>.`], next: '', actions: ['water', 'food'] };
     }
-    return { title: 'Nothing yet. Enjoy it.', next: '', actions: a.home ? ['food'] : ['home', 'food'], reasons: [
+    if (G) return { title: `${G.emoji} ${G.label}: ${plural(goal.target, 'drink')}. Enjoy them.`, next: '',
+      actions: a.home ? ['food'] : ['home', 'food'], reasons: [
+        `Amber from about drink ${Math.max(1, Math.ceil(A / PINT_UNITS))}, red after ${plural(goal.target, 'drink')}.`,
+        a.home ? `Home by <b>${fmtTime(a.home)}</b>.` : 'Set a <b>home time</b> now, while you\'re sensible.',
+        '<b>Eat before you start.</b> It slows everything down.',
+      ] };
+    return { title: 'Nothing yet. Enjoy it.', next: '', actions: ['plan', ...(a.home ? [] : ['home']), 'food'], reasons: [
+      '<b>Plan tonight</b>: a couple after work or a big one? The guidance steers to match.',
       'Set a <b>home time</b> now, while you\'re sensible.',
       '<b>Eat before you start.</b> It slows everything down.',
       'Halves and a water every couple of drinks make the night last longer.',
@@ -448,8 +477,11 @@ function guidance(a) {
   const feltEarly = fl != null && fl >= 2 && c.units < (dp ? dp.units * 0.7 : A * 0.7);
   const fineButHigh = fl != null && fl <= 1 && u >= A && now - c.ts < 90 * MIN;
 
-  const stop = wrecked || u >= R * 1.5 || pastHome || (drunk && u >= R);
-  const lastOne = !stop && (u >= R || drunk || atTipping);
+  const overPlan = G && n > goal.target;
+  const atPlan = G && n === goal.target;
+  // On a light night, going past the plan means stop; on bigger nights it means "last one".
+  const stop = wrecked || u >= R * 1.5 || pastHome || (drunk && u >= R) || (tone === 'light' && (u >= R * 1.3 || n >= goal.target + 2));
+  const lastOne = !stop && (u >= R || drunk || atTipping || (tone === 'light' && overPlan));
 
   // ---- When could the next one be? Aim for no faster than one an hour. ----
   let nextAt = null;
@@ -464,12 +496,17 @@ function guidance(a) {
   let title;
   if (stop) title = pastHome ? "Past your home time. Get your coat."
     : wrecked ? 'You said wrecked. Stop now: water, then home.'
+    : tone === 'light' && overPlan ? `That's way more than ${goal.type === 'quick' ? 'a couple' : 'a night in'}. Tomorrow's going to hurt.`
     : 'Stop now. Water, then home.';
   else if (lastOne) title = drunk ? 'You said drunk. Make this your last one.'
+    : tone === 'light' && overPlan ? `That's more than ${goal.type === 'quick' ? 'a couple' : 'planned'}. Make this the last.`
     : atTipping ? 'This is where you usually get drunk. Make it the last.'
+    : tone === 'big' ? "You've hit your big-night number. Make this the last."
     : "You're in the red. Make this your last one.";
-  else if (noFood) title = 'Eat something before the next drink.';
-  else if (a.paceLevel === 2) title = `Slow right down. Nothing before ${fmtTime(nextAt)}.`;
+  else if (tone === 'light' && atPlan) title = goal.type === 'quick' ? "That's your couple. Good time to head home." : "That's your lot for a night in. Swap to something soft?";
+  else if (noFood) title = tone === 'big' ? 'Long night ahead. Eat something now.' : 'Eat something before the next drink.';
+  else if (a.paceLevel === 2) title = tone === 'big' ? `This is quick even for a big night. Nothing before ${fmtTime(nextAt)}.` : `Slow right down. Nothing before ${fmtTime(nextAt)}.`;
+  else if (tone === 'big' && a.uLevel === 1) title = "Big night, fair enough. Pace it, it's a long one.";
   else if (waterDue) title = 'Water before the next one.';
   else if (feltEarly) title = "You're feeling it early tonight. Take it slow.";
   else if (fineButHigh) title = "You feel fine, but it's still catching up. Slow down.";
@@ -480,6 +517,7 @@ function guidance(a) {
   else title = "You're doing fine. Keep it steady.";
 
   // ---- Why ----
+  if (G) reasons.push(`${G.emoji} Plan: <b>${G.label}</b>, ${plural(goal.target, 'drink')}. This is drink <b>${n}</b>${overPlan ? `, <b>${n - goal.target} over</b>` : ''}.`);
   if (u >= R) reasons.push(`<b>${fmtUnits(u)} units</b>: ${fmtUnits(u - R)} past your red line of ${R}.`);
   else reasons.push(`<b>${fmtUnits(u)} units</b>${u >= A ? ' (amber)' : ''}. About <b>${pintsLeftText(R - u)}</b> before red.`);
 
@@ -496,6 +534,14 @@ function guidance(a) {
   if (noFood) reasons.push('<b>Nothing eaten.</b> On an empty stomach it hits harder and faster.');
   else if (foodGone) reasons.push(`<b>Last ate ${fmtAgo(now - a.lastFood.ts)}.</b> That's stopped helping.`);
   if (waterDue) reasons.push(`<b>${a.drinksSinceWater} drinks since your last water.</b>`);
+  if (goal && goal.work) {
+    const eight = keyToDate(a.key); eight.setDate(eight.getDate() + 1); eight.setHours(8, 0, 0, 0);
+    const at8 = a.inSystem - Math.max(0, (eight - now) / HOUR) * CLEAR_RATE;
+    reasons.push(at8 > 0.3
+      ? `<b>Work tomorrow:</b> ~${fmtUnits(at8)} units still in you at 8am. Every extra pint adds ~2½ hours.`
+      : `<b>Work tomorrow:</b> stop around here and you'll be clear by 8am.`);
+  }
+  if (tone === 'big' && (a.uLevel >= 1 || n >= 4)) reasons.push('<b>Big night basics:</b> water every couple of drinks, eat, keep your phone charged, know how you\'re getting home.');
   if (pastHome) reasons.push(`Home time was <b>${fmtTime(a.home)}</b>, ${fmtAgo(now - a.home)}.`);
   else if (a.home && a.avgGap && n >= 2) {
     const more = Math.floor((a.home - now) / a.avgGap);
@@ -514,7 +560,9 @@ function guidance(a) {
   else if (nextAt > now) next = `⏳ Next drink not before <b>${fmtTime(nextAt)}</b> · ${fmtDur(nextAt - now)} to wait`;
   else next = '⏳ No rush. Keep it to one an hour.';
 
-  return { title, reasons: reasons.slice(0, 5), next, actions: [...actions] };
+  if (!goal) actions.add('plan');
+  if (stop && tone === 'light' && overPlan) next = '⛔ <b>Plan says home.</b>';
+  return { title, reasons: reasons.slice(0, 6), next, actions: [...actions] };
 }
 
 const GUIDE_ACTIONS = {
@@ -522,6 +570,7 @@ const GUIDE_ACTIONS = {
   food:   '🍔 Log food',
   halves: '🍺 Switch to halves',
   home:   '🏠 Set home time',
+  plan:   '🎯 Plan tonight',
   done:   "🛑 I'm done for the night",
   undone: '↩︎ Not done after all',
 };
@@ -553,6 +602,7 @@ function logDrink(drink) {
   state.lastAdded = { type: 'drink', id: entry.id };
   showToast(drink.name + ' added', true);
   goTo('now', true);
+  if (!state.goals[key] && inNight(state.log, key).length === 1) openPlanSheet();
 }
 
 function setDone(done) {
@@ -645,6 +695,10 @@ function renderNow(a) {
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
+  const G = a.goal ? GOALS[a.goal.type] : null;
+  $('nowPlan').innerHTML = G
+    ? `${G.emoji} ${G.label} · <b>${n} of ${a.goal.target}</b> drinks${a.goal.work ? ' · 🗓' : ''}`
+    : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
   const g = guidance(a);
   $('nowHeadline').textContent = g.title;
 
@@ -749,7 +803,8 @@ function renderMorningCard(a) {
   if (!night) return;
   card.innerHTML = `
     <div class="prompt-title">Morning! How's the head?</div>
-    <div class="prompt-sub">After ${fmtNight(night.key)}: ${plural(night.drinks.length, 'drink')} · ${fmtUnits(night.units)} units</div>
+    <div class="prompt-sub">After ${fmtNight(night.key)}: ${plural(night.drinks.length, 'drink')} · ${fmtUnits(night.units)} units${
+      state.goals[night.key] && GOALS[state.goals[night.key].type] ? ` (planned ${state.goals[night.key].target})` : ''}</div>
     <div class="prompt-faces">${MORNINGS.map((m, i) =>
       `<button data-morning="${i}" data-key="${night.key}">${m.emoji}<span>${m.label}</span></button>`).join('')}</div>
     <button class="prompt-skip" data-morning="skip" data-key="${night.key}">Skip</button>`;
@@ -866,6 +921,14 @@ function renderHistory(a) {
   const ins = [];
   const dp = personalDrunkPoint(null);
   if (dp) ins.push(`You usually feel <b>drunk around ${fmtUnits(dp.units)} units</b> (from ${plural(dp.nights, 'night')}).`);
+  const planned = keys.filter(k => state.goals[k] && GOALS[state.goals[k].type]).map(k => ({ g: state.goals[k], s: nightSummary(k) }));
+  if (planned.length) {
+    const stuck = planned.filter(p => p.s.drinks.length <= p.g.target).length;
+    ins.push(`Stuck to the plan on <b>${stuck} of ${plural(planned.length, 'night')}</b>.`);
+    const quick = planned.filter(p => p.g.type === 'quick');
+    const blown = quick.filter(p => p.s.drinks.length >= p.g.target + 2).length;
+    if (blown) ins.push(`"Couple after work" turned into ${quick[0].g.target + 2}+ drinks <b>${blown} of ${quick.length}</b> times.`);
+  }
   const dpFed = personalDrunkPoint(null, true), dpEmpty = personalDrunkPoint(null, false);
   if (dpFed && dpEmpty) ins.push(`With food in you that's <b>${fmtUnits(dpFed.units)} units</b>. On an empty stomach, <b>${fmtUnits(dpEmpty.units)}</b>.`);
   const rated = keys.filter(k => typeof state.mornings[k] === 'number').map(k => ({ lvl: state.mornings[k], s: nightSummary(k) }));
@@ -881,7 +944,8 @@ function renderHistory(a) {
   $('historyList').innerHTML = keys.map(k => {
     const s = nightSummary(k);
     const m = state.mornings[k];
-    const emojis = (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
+    const gl = state.goals[k] && GOALS[state.goals[k].type] ? state.goals[k] : null;
+    const emojis = (gl ? GOALS[gl.type].emoji + (s.drinks.length <= gl.target ? '✅' : '❌') : '') + (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
     return `
       <li class="night">
         <button class="night-head" data-night="${k}">
@@ -1027,6 +1091,39 @@ function openHomeSheet() {
   openSheet('homeSheet');
 }
 
+function openPlanSheet() {
+  const key = nightKey(Date.now());
+  const cur = state.goals[key];
+  const day = keyToDate(key).getDay();          // 0 Sun … 6 Sat
+  const defaultWork = day >= 0 && day <= 4;     // Sun–Thu nights
+  state.planDraft = cur && GOALS[cur.type]
+    ? { ...cur }
+    : { type: 'quick', target: GOALS.quick.target, work: defaultWork };
+  renderPlanSheet();
+  openSheet('planSheet');
+}
+
+function renderPlanSheet() {
+  const d = state.planDraft;
+  $('planOpts').innerHTML = Object.entries(GOALS).map(([k, g]) => `
+    <button type="button" class="plan-opt${d.type === k ? ' active' : ''}" data-goal="${k}">
+      <span class="plan-emoji">${g.emoji}</span>
+      <span><b>${g.label}</b><small>${g.sub} · ~${plural(g.target, 'drink')}</small></span>
+    </button>`).join('');
+  $('aimVal').textContent = d.target;
+  $('workToggle').classList.toggle('active', !!d.work);
+  $('workToggle').textContent = d.work ? '🗓 Work tomorrow: yes' : '🗓 Work tomorrow: no';
+}
+
+function savePlan(type) {
+  const key = nightKey(Date.now());
+  state.goals[key] = type === 'none' ? { type: 'none' } : { ...state.planDraft };
+  save.goals();
+  closeSheets();
+  if (type !== 'none') showToast(`${GOALS[state.planDraft.type].emoji} Plan set: ${plural(state.planDraft.target, 'drink')}.`, false);
+  render();
+}
+
 function setHome(hhmm) {
   const key = nightKey(Date.now());
   if (hhmm) state.plans[key] = homeTimeToTs(key, hhmm);
@@ -1043,7 +1140,7 @@ async function exportData() {
   const data = JSON.stringify({
     app: 'drink-tracker', version: DB_VERSION, exported: new Date().toISOString(),
     library: state.library, log: state.log, water: state.water, food: state.food, checkins: state.checkins,
-    mornings: state.mornings, plans: state.plans, ended: state.ended, settings: state.settings,
+    mornings: state.mornings, plans: state.plans, ended: state.ended, goals: state.goals, settings: state.settings,
   }, null, 2);
   const name = 'drink-tracker-' + new Date().toISOString().slice(0, 10) + '.json';
   const file = new File([data], name, { type: 'application/json' });
@@ -1078,6 +1175,7 @@ function importData(file) {
       state.mornings = { ...(data.mornings || {}), ...state.mornings };
       state.plans = { ...(data.plans || {}), ...state.plans };
       state.ended = { ...(data.ended || {}), ...state.ended };
+      state.goals = { ...(data.goals || {}), ...state.goals };
       Object.values(save).forEach(f => f());
       showToast('Imported ' + plural(added, 'drink'), false);
       render();
@@ -1099,6 +1197,19 @@ function bind() {
   // Now screen
   $('goAdd').addEventListener('click', () => goTo('add'));
   $('doneBtn').addEventListener('click', () => setDone(true));
+  $('nowPlan').addEventListener('click', openPlanSheet);
+  $('planOpts').addEventListener('click', e => {
+    const b = e.target.closest('[data-goal]');
+    if (!b) return;
+    state.planDraft.type = b.dataset.goal;
+    state.planDraft.target = GOALS[b.dataset.goal].target;
+    renderPlanSheet();
+  });
+  $('aimMinus').addEventListener('click', () => { state.planDraft.target = Math.max(1, state.planDraft.target - 1); renderPlanSheet(); });
+  $('aimPlus').addEventListener('click', () => { state.planDraft.target = Math.min(20, state.planDraft.target + 1); renderPlanSheet(); });
+  $('workToggle').addEventListener('click', () => { state.planDraft.work = !state.planDraft.work; renderPlanSheet(); });
+  $('planSave').addEventListener('click', () => savePlan(state.planDraft.type));
+  $('planSkip').addEventListener('click', () => savePlan('none'));
   $('guideCard').addEventListener('click', e => {
     const b = e.target.closest('[data-guide]');
     if (!b) return;
@@ -1106,6 +1217,7 @@ function bind() {
     if (k === 'water') logWater();
     if (k === 'food') $('foodBtn').click();
     if (k === 'home') openHomeSheet();
+    if (k === 'plan') openPlanSheet();
     if (k === 'halves') { state.cat = 'halves'; goTo('add'); }
     if (k === 'done') setDone(true);
     if (k === 'undone') setDone(false);

@@ -31,6 +31,7 @@
           <span class="big-label" id="nowDrinksLabel">drinks</span>
         </div>
         <div class="panel-units"><b id="nowUnits">0.0</b> units</div>
+        <button class="panel-plan" id="nowPlan">🎯 Tap to plan tonight</button>
         <div class="panel-headline" id="nowHeadline">Nothing yet. Enjoy it.</div>
       </div>
 
@@ -86,7 +87,7 @@
             <option value="0">Never</option>
           </select>
         </label>
-        <p class="setting-note">Amber and red are units drunk in one night. Pace also turns things amber if you're going faster than one drink an hour.</p>
+        <p class="setting-note">Amber and red are for "just tracking" nights; a plan sets its own. Units drunk in one night. Pace also turns things amber if you're going faster than one drink an hour.</p>
       </div>
 
       <h3 class="section-title">Backup</h3>
@@ -164,6 +165,30 @@
       </div>
       <p class="sheet-note">Be honest. Over a few nights this learns where <i>your</i> tipping point is.</p>
       <div class="faces" id="feelFaces"></div>
+    </div>
+  </div>
+
+  <!-- Plan sheet -->
+  <div class="sheet-backdrop" id="planSheet" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>What's tonight?</h2>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
+      </div>
+      <p class="sheet-note">Pick a plan and the guidance steers to match. Change it any time by tapping the plan on the main screen.</p>
+      <div class="plans" id="planOpts"></div>
+      <div class="plan-aim">
+        <span>Aim for</span>
+        <button type="button" class="aim-btn" id="aimMinus" aria-label="Fewer">−</button>
+        <b id="aimVal">2</b>
+        <button type="button" class="aim-btn" id="aimPlus" aria-label="More">+</button>
+        <span>drinks</span>
+      </div>
+      <button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button>
+      <div class="sheet-actions">
+        <button type="button" class="btn-primary" id="planSave">Set plan</button>
+        <button type="button" class="btn-secondary" id="planSkip">Just tracking</button>
+      </div>
     </div>
   </div>
 
