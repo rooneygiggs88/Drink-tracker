@@ -15,40 +15,69 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="stats" id="stats">
-    <div class="stats-label" id="nightLabel">Tonight</div>
-    <div class="stats-row">
-      <div class="stat">
-        <div class="stat-num" id="statDrinks">0</div>
-        <div class="stat-name">drinks</div>
-      </div>
-      <div class="stat">
-        <div class="stat-num" id="statUnits">0.0</div>
-        <div class="stat-name">units</div>
-      </div>
-    </div>
-    <div class="stats-sub" id="statSub">Nothing logged yet</div>
+  <!-- Slim status bar shown on every screen except Now -->
+  <header class="bar lvl-none" id="bar" hidden>
+    <span id="barMain">0 drinks · 0.0 units</span>
+    <span id="barSub"></span>
   </header>
 
   <main>
+    <!-- NOW -->
+    <section class="view" id="view-now">
+      <div class="panel lvl-none" id="panel">
+        <div class="panel-date" id="nowDate">Tonight</div>
+        <div class="panel-big">
+          <span class="big-num" id="nowDrinks">0</span>
+          <span class="big-label" id="nowDrinksLabel">drinks</span>
+        </div>
+        <div class="panel-units"><b id="nowUnits">0.0</b> units</div>
+        <div class="panel-headline" id="nowHeadline">Nothing yet. Enjoy it.</div>
+      </div>
+
+      <div class="now-body">
+        <div class="card prompt" id="morningCard" hidden></div>
+        <div class="card prompt" id="checkinCard" hidden></div>
+
+        <button class="btn-add" id="goAdd"><span>+</span> Add drink</button>
+        <div class="quick">
+          <button class="quick-btn" id="waterBtn">💧<span>Water</span></button>
+          <button class="quick-btn" id="feelBtn">🫠<span>Feeling?</span></button>
+          <button class="quick-btn" id="homeBtn">🏠<span>Home time</span></button>
+        </div>
+
+        <ul class="facts" id="facts"></ul>
+        <p class="disclaimer">Estimates only. Everyone processes alcohol differently — never use this to decide if you're OK to drive.</p>
+      </div>
+    </section>
+
     <!-- ADD -->
-    <section class="view" id="view-add">
+    <section class="view" id="view-add" hidden>
       <div class="cats" id="cats"></div>
       <div class="grid" id="grid"></div>
-      <p class="hint" id="editHint" hidden>Edit mode: tap a drink to change or remove it.</p>
+      <p class="hint" id="editHint" hidden>Edit mode: tap a drink to change its strength, size or price — or remove it.</p>
     </section>
 
     <!-- TONIGHT -->
     <section class="view" id="view-tonight" hidden>
       <ul class="log" id="tonightList"></ul>
-      <p class="empty" id="tonightEmpty">No drinks yet tonight.</p>
+      <p class="empty" id="tonightEmpty">Nothing logged yet tonight.</p>
     </section>
 
     <!-- HISTORY -->
     <section class="view" id="view-history" hidden>
-      <div class="week" id="weekSummary"></div>
+      <div class="card week" id="weekSummary"></div>
+      <div class="card insights" id="insights" hidden></div>
       <ul class="nights" id="historyList"></ul>
       <p class="empty" id="historyEmpty">No history yet.</p>
+
+      <h3 class="section-title">Traffic light</h3>
+      <div class="card settings">
+        <label class="setting"><span><i class="dot lvl-1"></i>Amber from</span><input id="setAmber" type="text" inputmode="decimal"> units</label>
+        <label class="setting"><span><i class="dot lvl-2"></i>Red from</span><input id="setRed" type="text" inputmode="decimal"> units</label>
+        <p class="setting-note">Units drunk in one night. Pace also turns things amber if you're going faster than one drink an hour.</p>
+      </div>
+
+      <h3 class="section-title">Backup</h3>
       <div class="data-tools">
         <button class="btn-ghost" id="exportBtn">Export backup</button>
         <button class="btn-ghost" id="importBtn">Import backup</button>
@@ -63,17 +92,18 @@
   </div>
 
   <nav class="tabs">
-    <button class="tab active" data-view="add">Add</button>
-    <button class="tab" data-view="tonight">Tonight <span class="badge" id="tonightBadge" hidden></span></button>
+    <button class="tab active" data-view="now">Now</button>
+    <button class="tab" data-view="add">Add</button>
+    <button class="tab" data-view="tonight">Tonight</button>
     <button class="tab" data-view="history">History</button>
   </nav>
 
   <!-- Drink editor sheet -->
-  <div class="sheet-backdrop" id="sheetBackdrop" hidden>
+  <div class="sheet-backdrop" id="drinkSheet" hidden>
     <form class="sheet" id="drinkForm" autocomplete="off">
       <div class="sheet-head">
         <h2 id="sheetTitle">Add your own</h2>
-        <button type="button" class="btn-x" id="sheetClose" aria-label="Close">✕</button>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
       </div>
 
       <label class="field">
@@ -81,10 +111,16 @@
         <input id="fName" type="text" placeholder="e.g. Lidl Lager" required maxlength="40">
       </label>
 
-      <label class="field">
-        <span>Strength (% ABV)</span>
-        <input id="fAbv" type="text" inputmode="decimal" placeholder="e.g. 4.5" required>
-      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>Strength (% ABV)</span>
+          <input id="fAbv" type="text" inputmode="decimal" placeholder="4.5" required>
+        </label>
+        <label class="field">
+          <span>Price £ (optional)</span>
+          <input id="fPrice" type="text" inputmode="decimal" placeholder="5.50">
+        </label>
+      </div>
 
       <div class="field">
         <span>Size</span>
@@ -105,6 +141,38 @@
         <button type="button" class="btn-danger" id="deleteBtn" hidden>Remove from library</button>
       </div>
     </form>
+  </div>
+
+  <!-- Feeling sheet -->
+  <div class="sheet-backdrop" id="feelSheet" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>How are you feeling?</h2>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
+      </div>
+      <p class="sheet-note">Be honest. Over a few nights this learns where <i>your</i> tipping point is.</p>
+      <div class="faces" id="feelFaces"></div>
+    </div>
+  </div>
+
+  <!-- Home time sheet -->
+  <div class="sheet-backdrop" id="homeSheet" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>Home by…</h2>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
+      </div>
+      <p class="sheet-note">Set it while you're sensible. We'll count down and nag when it passes.</p>
+      <div class="chips big" id="homeChips"></div>
+      <label class="field">
+        <span>Or pick a time</span>
+        <input id="homeTime" type="time">
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="btn-primary" id="homeSave">Set home time</button>
+        <button type="button" class="btn-danger" id="homeClear" hidden>Clear home time</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
