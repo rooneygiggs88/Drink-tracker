@@ -207,7 +207,10 @@
         <button type="button" class="aim-btn" id="aimPlus" aria-label="More">+</button>
         <span>pints</span>
       </div>
-      <button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button>
+      <div class="toggles">
+        <button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button>
+        <button type="button" class="chip toggle" id="whereToggle">📍 Local</button>
+      </div>
       <div class="sheet-actions">
         <button type="button" class="btn-primary" id="planSave">Set plan</button>
         <button type="button" class="btn-secondary" id="planSkip">Just tracking</button>
@@ -237,10 +240,10 @@
   <div class="sheet-backdrop" id="homeSheet" hidden>
     <div class="sheet">
       <div class="sheet-head">
-        <h2>Home by…</h2>
+        <h2 id="homeTitle">Home by…</h2>
         <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
       </div>
-      <p class="sheet-note">Set it while you're sensible. We'll count down and nag when it passes.</p>
+      <p class="sheet-note" id="homeNote">Set it while you're sensible. We'll count down and nag when it passes.</p>
       <div class="chips big" id="homeChips"></div>
       <label class="field">
         <span>Or pick a time</span>

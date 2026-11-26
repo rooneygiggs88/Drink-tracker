@@ -415,6 +415,9 @@ function analyse() {
   const drinksSinceCheckin = lastCheckin ? s.drinks.filter(e => e.ts > lastCheckin.ts).length : n;
 
   const home = state.plans[key] || null;
+  // Getting home: local (taxi/walk) or in town with a train to catch (leave 20 min before it).
+  const town = (state.goals[key] || {}).where === 'town';
+  const leaveAt = home ? (town ? home - 20 * MIN : home) : null;
   const fed = fedAt(now);
   const lastFood = s.food.length ? s.food[s.food.length - 1] : null;
   // Prefer the tipping point that matches whether you've eaten; fall back to all nights.
@@ -422,7 +425,7 @@ function analyse() {
   const drunkPoint = matched ? { ...matched, fed: !!fed } : personalDrunkPoint(key);
 
   return { now, key, s, n, first, last, elapsed, lastHour, avgGap, paceLevel, uLevel, level,
-           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim, pe };
+           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim, pe, town, leaveAt };
 }
 
 // Plans count in pint-equivalents (a half = ½, a large wine ≈ 1¼, a shot ≈ ⅓).
@@ -595,6 +598,26 @@ const LINES = {
     'Wrecked means home. Now.',
     'No more. Water, then get yourself home safe.',
   ],
+  noTrain: [
+    'London night: check your last train now.',
+    "What time's your last train? Sort it while you can still read a timetable.",
+    'Before the next one: look up your last train home.',
+  ],
+  trainSoon: [
+    'Leave by {leave} for the {home}. No more rounds.',
+    "Train at {home}. Finish up, you're leaving at {leave}.",
+    "{mins} minutes till you need to go. Don't start another.",
+  ],
+  leaveNow: [
+    'Leave now for the {home}.',
+    "Coat on. The {home} won't wait.",
+    'Go now and you make the {home}. Stay and you don\'t.',
+  ],
+  missedTrain: [
+    "You've missed the window for the {home}. Station now, or it's a £100+ cab.",
+    "Last train's gone or going. Sort a safe way home now.",
+    "That was the {home}. Get home safely: night bus, cab, or a mate's sofa.",
+  ],
   pastHome: [
     'Past your home time. Get your coat.',
     'Home time was {home}. Go.',
@@ -734,7 +757,8 @@ function stopNow(a, g) {
 
   // What one more costs
   const nowFeel = fmtFeelTime(careMissing ? okPlain : okCared), nextFeel = fmtFeelTime(okNext);
-  if (next.tier > now.tier) lines.push(`🍺 <b>One more pint</b> turns this into ${TOMORROW_LABEL[next.tier]}${nextFeel !== nowFeel ? `: OK by <b>${nextFeel}</b> instead` : ''}.`);
+  if (a.town && a.home && !g.missed && a.now + 30 * MIN > a.leaveAt) lines.push(`🍺 <b>One more pint</b> and you miss the <b>${fmtTime(a.home)}</b>. That's the real cost tonight.`);
+  else if (next.tier > now.tier) lines.push(`🍺 <b>One more pint</b> turns this into ${TOMORROW_LABEL[next.tier]}${nextFeel !== nowFeel ? `: OK by <b>${nextFeel}</b> instead` : ''}.`);
   else if (nextFeel !== nowFeel) lines.push(`🍺 <b>One more pint</b> pushes feeling OK back to <b>${nextFeel}</b>.`);
   else lines.push(`🍺 <b>One more pint</b>: you'd probably get away with it. It's the one after that starts costing you.`);
 
@@ -751,6 +775,11 @@ function stopNow(a, g) {
 
   const priced = s.drinks.filter(e => e.price != null);
   if (priced.length) lines.push(`💷 You keep <b>${fmtMoney(sum(priced, e => e.price) / priced.length * 2)}</b>, what the next two would cost.`);
+  if (a.town) lines.push(g.leaveNow
+    ? `🚆 Leave now and you still make the <b>${fmtTime(a.home)}</b>.`
+    : a.home && !g.missed
+    ? `🚆 Stop now and you make the <b>${fmtTime(a.home)}</b> easily.`
+    : a.home ? '🚆 Stop now and sort a safe way home while you still can.' : '🚆 Stop now, check your last train, and get it while it\'s easy.');
   if (a.goal && GOALS[a.goal.type]) lines.push(g.overPlan ? "🎯 You're over the plan, but stopping here still counts." : '🎯 And the plan stays intact. ✅');
   return { headline, lines };
 }
@@ -774,6 +803,12 @@ function nudgePool(a) {
   if (u >= 4) pool.push({ icon: '😴', text: 'Above ~4 units, deep and REM sleep take the hit: you sleep longer and wake up worse.' });
   if (n >= 3 && !s.water.length) pool.push({ icon: '💧', text: 'Alcohol makes you lose more fluid than you drink. One water per drink is the cheapest hangover cure going.' });
   if (a.elapsed > 2 * HOUR && u > 3) pool.push({ icon: '🫀', text: `Your body's cleared about <b>${fmtPints(pintEq(Math.max(0, u - a.inSystem)))} pints' worth</b> so far. The other ≈${fmtPints(pintEq(a.inSystem))} are queued up for the night shift.` });
+  if (a.town && n >= 2) {
+    pool.push({ icon: '🔋', text: 'Phone battery matters more in London: tickets, maps and getting hold of people all run on it.' });
+    pool.push({ icon: '😴', text: "Don't fall asleep on the train. Set an alarm for your stop before you sit down." });
+    pool.push({ icon: '👥', text: "Stick with your mates until you're at the station." });
+    pool.push({ icon: '🚕', text: "Missing the last train ≈ a £100+ cab. That's more than tonight's bar bill." });
+  }
   if (a.goal && a.goal.type === 'big' && n >= 3) pool.push({ icon: '🔋', text: "Phone battery, how you're getting home, who you're with. Sort those while you still care." });
   if (u >= 10) pool.push({ icon: '🧠', text: "Past ~10 units, memory starts getting patchy. If you can't remember drink 6 tomorrow, that's why." });
   return pool;
@@ -830,7 +865,11 @@ function guidance(a) {
   }
 
   // ---- Signals ----
-  const pastHome = a.home && now > a.home;
+  const town = a.town;
+  const pastHome = !town && a.home && now > a.home;
+  const missed = town && a.home && now > a.home;
+  const leaveNow = town && a.home && !missed && now >= a.leaveAt;
+  const trainSoon = town && a.home && now < a.leaveAt && a.leaveAt - now <= 30 * MIN;
   const wrecked = fl === 4;
   const drunk = fl === 3;
   const atTipping = dp && u >= dp.units - 0.5;
@@ -844,8 +883,8 @@ function guidance(a) {
   const overPlan = G && pe > goal.target + PLAN_SLACK;
   const atPlan = G && !overPlan && pe >= goal.target - PLAN_SLACK;
   // On a light night, going past the plan means stop; on bigger nights it means "last one".
-  const stop = wrecked || u >= R * 1.5 || pastHome || (drunk && u >= R) || (tone === 'light' && (u >= R * 1.6 || pe >= goal.target + 2));
-  const lastOne = !stop && (u >= R || drunk || atTipping || (tone === 'light' && overPlan));
+  const stop = wrecked || u >= R * 1.5 || pastHome || missed || leaveNow || (drunk && u >= R) || (tone === 'light' && (u >= R * 1.6 || pe >= goal.target + 2));
+  const lastOne = !stop && (trainSoon || u >= R || drunk || atTipping || (tone === 'light' && overPlan));
 
   // ---- When could the next one be? ~45 min a pint, scaled by size; the first is quicker. ----
   let nextAt = null;
@@ -862,15 +901,18 @@ function guidance(a) {
   const over = G ? pe - goal.target : 0;
   let sit;
   if (stop) {
-    if (pastHome) sit = 'pastHome';
+    if (missed) sit = 'missedTrain';
+    else if (leaveNow) sit = 'leaveNow';
+    else if (pastHome) sit = 'pastHome';
     else if (wrecked) sit = 'wrecked';
     else if (tone === 'light' && overPlan) sit = over >= 5 ? 'wayOver3' : over >= 3 ? 'wayOver2' : goal.work ? 'wayOverWork' : 'wayOver1';
     else sit = u >= R * 2 ? 'stop2' : 'stop';
   }
-  else if (lastOne) sit = drunk ? 'drunk' : tone === 'light' && overPlan ? 'overLight'
+  else if (lastOne) sit = trainSoon ? 'trainSoon' : drunk ? 'drunk' : tone === 'light' && overPlan ? 'overLight'
     : atTipping ? 'atTipping' : tone === 'big' ? 'bigHit' : 'redLast';
   else if (tone === 'light' && atPlan) sit = goal.type === 'quick' ? 'atQuick' : 'atHome';
   else if (noFood) sit = tone === 'big' ? 'noFoodBig' : 'noFood';
+  else if (town && !a.home && n >= 2) sit = 'noTrain';
   else if (a.paceLevel === 2) sit = tone === 'big' ? 'paceRedBig' : 'paceRed';
   else if (tone === 'light' && a.uLevel === 1) sit = goal.type === 'quick' ? 'nearQuick' : 'nearPlan';
   else if (tone === 'big' && a.uLevel === 1) sit = 'bigAmber';
@@ -886,6 +928,7 @@ function guidance(a) {
   const title = say(sit, {
     n, pe: fmtPints(pe), t: G ? goal.target : 0, over: fmtPints(over), u: fmtUnits(u),
     next: nextAt ? fmtTime(nextAt) : '', home: a.home ? fmtTime(a.home) : '',
+    leave: a.leaveAt ? fmtTime(a.leaveAt) : '', mins: a.leaveAt ? Math.max(0, Math.round((a.leaveAt - now) / MIN)) : '',
     dsw: a.drinksSinceWater, cp: c ? fmtPints(pintEq(c.units)) : '',
   }, `${a.key}|${n}`);
 
@@ -919,9 +962,12 @@ function guidance(a) {
   if (waterDue) reasons.push(`<b>${a.drinksSinceWater} drinks since your last water.</b>`);
   if (workReason && tone !== 'light') reasons.push(workReason);
   if (tone === 'big' && (a.uLevel >= 1 || n >= 4)) reasons.push('<b>Big night basics:</b> water every couple of drinks, eat, keep your phone charged, know how you\'re getting home.');
+  if (town && !a.home && n >= 2) reasons.push("🚆 <b>No last train set.</b> Check it now, while you can still read a timetable.");
+  if (town && a.home && !missed) reasons.push(`🚆 Leave by <b>${fmtTime(a.leaveAt)}</b> for the ${fmtTime(a.home)}.`);
+  if (missed) reasons.push(`🚆 Your last train was <b>${fmtTime(a.home)}</b>.`);
   if (pastHome) reasons.push(`Home time was <b>${fmtTime(a.home)}</b>, ${fmtAgo(now - a.home)}.`);
-  else if (a.home && a.avgGap && n >= 2) {
-    const more = Math.floor((a.home - now) / a.avgGap);
+  else if (a.home && a.avgGap && n >= 2 && Math.floor(((a.leaveAt || a.home) - now) / a.avgGap) >= 1) {
+    const more = Math.floor(((a.leaveAt || a.home) - now) / a.avgGap);
     reasons.push(`At this pace: <b>~${plural(more, 'more pint')}</b> by ${fmtTime(a.home)}, ending on ≈${fmtPints(pe + more)}.`);
   }
 
@@ -938,8 +984,9 @@ function guidance(a) {
   else next = '⏳ No rush. About 45 minutes a pint keeps it steady.';
 
   if (!goal) actions.add('plan');
+  if (town && !a.home) actions.add('train');
   if (stop && tone === 'light' && overPlan) next = '⛔ <b>Plan says home.</b>';
-  return { title, reasons: reasons.slice(0, 6), next, actions: [...actions], stop, lastOne, overPlan, atPlan, pastHome };
+  return { title, reasons: reasons.slice(0, 6), next, actions: [...actions], stop, lastOne, overPlan, atPlan, pastHome, missed, leaveNow, trainSoon };
 }
 
 const GUIDE_ACTIONS = {
@@ -948,6 +995,7 @@ const GUIDE_ACTIONS = {
   halves: '🍺 Switch to halves',
   home:   '🏠 Set home time',
   plan:   '🎯 Plan tonight',
+  train:  '🚆 Set last train',
   done:   "🛑 I'm done for the night",
   undone: '↩︎ Not done after all',
 };
@@ -958,6 +1006,9 @@ const GUIDE_ACTIONS = {
 function holdUpTitle(a, g, drink) {
   if (!a.n) return null;
   if (a.ended) return `You called it a night at ${fmtTime(a.ended)}.`;
+  if (g.missed) return `Your last train was ${fmtTime(a.home)}.`;
+  if (g.leaveNow) return `You need to leave now for the ${fmtTime(a.home)}.`;
+  if (g.trainSoon) return `You need to leave in ${Math.max(1, Math.round((a.leaveAt - Date.now()) / MIN))} min for your train.`;
   if (g.pastHome) return `You said home by ${fmtTime(a.home)}.`;
   if (g.stop) return g.title;
   if (g.lastOne) return 'You said the last one was the last one.';
@@ -1111,14 +1162,16 @@ function renderNow(a) {
   const g = guidance(a);
 
   // ---- 1. The tally ----
-  setLevelClass($('panel'), a.level);
+  // Missing the train / past home time turns the panel red; the last 30 min amber.
+  const timeLvl = (g.missed || g.leaveNow || g.pastHome) ? 2 : g.trainSoon ? 1 : -1;
+  setLevelClass($('panel'), n ? Math.max(a.level, timeLvl) : a.level);
   $('nowDate').textContent = 'Tonight · ' + fmtNight(a.key) + (a.ended ? ' · done at ' + fmtTime(a.ended) : '');
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
   $('nowSub').textContent = n ? (a.ended ? `${fmtTime(a.first)}–${fmtTime(a.ended)} · ${fmtDur(a.elapsed)}` : (a.elapsed < 5 * MIN ? '· just started' : `· out ${fmtDur(a.elapsed)}`)) : '';
   $('nowPlan').innerHTML = G
-    ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}`
+    ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}${a.town ? ' · 🚆' : ''}`
     : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
   $('nowHeadline').textContent = g.title;
   $('nowNext').innerHTML = g.next || '';
@@ -1153,7 +1206,15 @@ function renderNow(a) {
     tiles.push(tile('💧', 'Water', String(s.water.length),
       dsw >= 2 ? `${dsw} drinks since` : s.water.length ? 'keep it up' : 'tap to log', dsw >= 4 ? 2 : dsw >= 2 ? 1 : 'g', 'water'));
     if (!a.ended) {
-      if (a.home) {
+      if (a.town) {
+        if (!a.home) tiles.push(tile('🚆', 'Last train', '—', 'tap to set', n >= 2 ? 1 : 0, 'home'));
+        else if (a.now > a.home) tiles.push(tile('🚆', 'Train', 'Missed', `was ${fmtTime(a.home)}`, 2, 'home'));
+        else if (a.now >= a.leaveAt) tiles.push(tile('🚆', 'Leave', 'NOW', `for the ${fmtTime(a.home)}`, 2, 'home'));
+        else {
+          const left = a.leaveAt - a.now;
+          tiles.push(tile('🚆', 'Leave in', fmtDur(left), `for the ${fmtTime(a.home)}`, left <= 30 * MIN ? 1 : 'g', 'home'));
+        }
+      } else if (a.home) {
         const left = a.home - a.now;
         tiles.push(left > 0
           ? tile('🏠', 'Home in', fmtDur(left), `by ${fmtTime(a.home)}`, left < 30 * MIN ? 1 : 'g', 'home')
@@ -1173,8 +1234,10 @@ function renderNow(a) {
   const isHome = r => /At this pace/.test(r);
   const why = live ? g.reasons.filter(r => !SHOWN_ELSEWHERE.some(rx => rx.test(r)) && !isFeel(r) && !isHome(r) && !/Big night basics/.test(r)) : [];
   // The one reason that matters sits under the instruction in the panel.
-  $('nowWhy').innerHTML = why[0] || '';
-  $('nowWhy').hidden = !why[0];
+  const timeWhy = (g.missed || g.leaveNow || g.trainSoon || g.pastHome) ? g.reasons.find(r => /🚆|Home time was/.test(r)) : null;
+  const panelWhy = timeWhy || why[0] || '';
+  $('nowWhy').innerHTML = panelWhy;
+  $('nowWhy').hidden = !panelWhy;
   if (!live && g.reasons.length) parts.push(`<div class="tile-label">${a.ended ? '🌙 Before bed' : '🧭 Before you start'}</div>
     <ul class="guide-why">${g.reasons.map(r => `<li>${r}</li>`).join('')}</ul>`);
 
@@ -1558,7 +1621,13 @@ function openHomeSheet() {
   const key = nightKey(Date.now());
   const cur = state.plans[key];
   const curStr = cur ? fmtTime(cur) : null;
-  $('homeChips').innerHTML = ['22:00', '23:00', '23:30', '00:00', '01:00', '02:00']
+  const town = (state.goals[key] || {}).where === 'town';
+  $('homeTitle').textContent = town ? 'Last train home' : 'Home by…';
+  $('homeNote').textContent = town
+    ? "When's your last train? I'll get you out the door 20 minutes before it."
+    : "Set it while you're sensible. We'll count down and nag when it passes.";
+  $('homeSave').textContent = town ? 'Set last train' : 'Set home time';
+  $('homeChips').innerHTML = (town ? ['22:30', '23:00', '23:15', '23:30', '23:45', '00:15'] : ['22:00', '23:00', '23:30', '00:00', '01:00', '02:00'])
     .map(t => `<button type="button" class="chip${t === curStr ? ' active' : ''}" data-time="${t}">${t}</button>`).join('');
   $('homeTime').value = curStr || '';
   $('homeClear').hidden = !cur;
@@ -1571,8 +1640,8 @@ function openPlanSheet() {
   const day = keyToDate(key).getDay();          // 0 Sun … 6 Sat
   const defaultWork = day >= 0 && day <= 4;     // Sun–Thu nights
   state.planDraft = cur && GOALS[cur.type]
-    ? { ...cur }
-    : { type: 'quick', target: GOALS.quick.target, work: defaultWork };
+    ? { where: state.settings.lastWhere || 'local', ...cur }
+    : { type: 'quick', target: GOALS.quick.target, work: defaultWork, where: state.settings.lastWhere || 'local' };
   renderPlanSheet();
   openSheet('planSheet');
 }
@@ -1587,12 +1656,16 @@ function renderPlanSheet() {
   $('aimVal').textContent = d.target;
   $('workToggle').classList.toggle('active', !!d.work);
   $('workToggle').textContent = d.work ? '🗓 Work tomorrow: yes' : '🗓 Work tomorrow: no';
+  $('whereToggle').classList.toggle('active', d.where === 'town');
+  $('whereToggle').textContent = d.where === 'town' ? '🚆 In London · train home' : '📍 Local · taxi or walk home';
 }
 
 function savePlan(type) {
   const key = nightKey(Date.now());
-  state.goals[key] = type === 'none' ? { type: 'none' } : { ...state.planDraft };
+  state.goals[key] = type === 'none' ? { type: 'none', where: state.planDraft.where } : { ...state.planDraft };
   save.goals();
+  state.settings.lastWhere = state.planDraft.where;
+  save.settings();
   closeSheets();
   if (type !== 'none') showToast(`${GOALS[state.planDraft.type].emoji} Plan set: ${plural(state.planDraft.target, 'pint')}.`, false);
   render();
@@ -1604,7 +1677,8 @@ function setHome(hhmm) {
   else delete state.plans[key];
   save.plans();
   closeSheets();
-  if (hhmm) showToast('🏠 Home by ' + hhmm + '. Hold yourself to it.', false);
+  const town = (state.goals[key] || {}).where === 'town';
+  if (hhmm) showToast(town ? `🚆 Last train ${hhmm}. Leave by ${fmtTime(state.plans[key] - 20 * MIN)}.` : '🏠 Home by ' + hhmm + '. Hold yourself to it.', false);
   render();
 }
 
@@ -1690,6 +1764,7 @@ function bind() {
   $('aimMinus').addEventListener('click', () => { state.planDraft.target = Math.max(1, state.planDraft.target - 1); renderPlanSheet(); });
   $('aimPlus').addEventListener('click', () => { state.planDraft.target = Math.min(20, state.planDraft.target + 1); renderPlanSheet(); });
   $('workToggle').addEventListener('click', () => { state.planDraft.work = !state.planDraft.work; renderPlanSheet(); });
+  $('whereToggle').addEventListener('click', () => { state.planDraft.where = state.planDraft.where === 'town' ? 'local' : 'town'; renderPlanSheet(); });
   $('planSave').addEventListener('click', () => savePlan(state.planDraft.type));
   $('planSkip').addEventListener('click', () => savePlan('none'));
   $('guideCard').addEventListener('click', e => {
@@ -1698,7 +1773,7 @@ function bind() {
     const k = b.dataset.guide;
     if (k === 'water') logWater();
     if (k === 'food') $('foodBtn').click();
-    if (k === 'home') openHomeSheet();
+    if (k === 'home' || k === 'train') openHomeSheet();
     if (k === 'plan') openPlanSheet();
     if (k === 'halves') { state.cat = 'halves'; goTo('add'); }
     if (k === 'done') setDone(true);

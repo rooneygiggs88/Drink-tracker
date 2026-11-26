@@ -681,3 +681,6 @@ button.tile:active { transform: scale(.97); }
   background: linear-gradient(180deg, rgba(29,107,66,.28), var(--surface) 70%);
 }
 .card.stoptop .stop-head { font-size: 20px; }
+
+.toggles { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+.toggles .chip.toggle { margin: 0; }
