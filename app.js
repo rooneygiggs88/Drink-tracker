@@ -78,6 +78,9 @@ const TRAINS = {
   race: { emoji: '🏁', label: 'Race', noun: 'race',        cap: 1 },
 };
 const WORK_CAP = 4;
+const STATION_MINS = [10, 20, 30, 45, 60];
+// Minutes from the pub to being on the train: per night, else your last choice, else 20.
+const stationMinsFor = key => (state.goals[key] || {}).stationMins || state.settings.lastStationMins || 20;
 
 // The most of the plan's default that keeps tomorrow usable, and why.
 function suggestAim(d) {
@@ -500,7 +503,7 @@ function analyse() {
   // Getting home: local (taxi/walk) or in town with a train to catch (leave 20 min before it).
   const town = (state.goals[key] || {}).where === 'town';
   const atHome = atHomeTonight(key);
-  const leaveAt = home ? (town ? home - 20 * MIN : home) : null;
+  const leaveAt = home ? (town ? home - stationMinsFor(key) * MIN : home) : null;
   const fed = fedAt(now);
   const lastFood = s.food.length ? s.food[s.food.length - 1] : null;
   // Prefer the tipping point that matches whether you've eaten; fall back to all nights.
@@ -2099,7 +2102,7 @@ function openHomeSheet() {
   const town = (state.goals[key] || {}).where === 'town';
   $('homeTitle').textContent = town ? 'Last train home' : 'Home by…';
   $('homeNote').textContent = town
-    ? "When's your last train? I'll get you out the door 20 minutes before it."
+    ? `When's your last train? I'll get you out the door ${stationMinsFor(key)} minutes before it.`
     : "Set it while you're sensible. We'll count down and nag when it passes.";
   $('homeSave').textContent = town ? 'Set last train' : 'Set home time';
   $('homeChips').innerHTML = (town ? ['22:30', '23:00', '23:15', '23:30', '23:45', '00:15'] : ['22:00', '23:00', '23:30', '00:00', '01:00', '02:00'])
@@ -2121,6 +2124,7 @@ function openPlanSheet() {
   if (!state.planDraft.manual) state.planDraft.target = suggestAim(state.planDraft).aim;
   $('planWhy').value = state.planDraft.why || '';
   state.planDraft.homeTime = state.plans[key] ? fmtTime(state.plans[key]) : null;
+  state.planDraft.stationMins = stationMinsFor(key);
   renderPlanSheet();
   openSheet('planSheet');
 }
@@ -2150,6 +2154,10 @@ function renderPlanSheet() {
     .filter(t => homeTimeToTs(key, t) > Date.now() + 15 * MIN).slice(0, 5);
   $('planHomeChips').innerHTML = times.map(t => `<button type="button" class="chip${d.homeTime === t ? ' active' : ''}" data-ht="${t}">${t}</button>`).join('') +
     `<button type="button" class="chip${!d.homeTime ? ' active' : ''}" data-ht="">No time</button>`;
+  $('stationRow').hidden = !town;
+  $('stationChips').innerHTML = STATION_MINS.map(m =>
+    `<button type="button" class="chip${d.stationMins === m ? ' active' : ''}" data-sm="${m}">${m} min</button>`).join('');
+  $('stationNote').textContent = town && d.homeTime ? `Leave by ${fmtTime(homeTimeToTs(nightKey(Date.now()), d.homeTime) - d.stationMins * MIN)} for the ${d.homeTime}.` : '';
   if (document.activeElement !== $('planHomeTime')) $('planHomeTime').value = d.homeTime && !times.includes(d.homeTime) ? d.homeTime : '';
   $('trainChips').innerHTML = [['', 'None']].concat(Object.entries(TRAINS).map(([k, t]) => [k, `${t.emoji} ${t.label}`]))
     .map(([k, l]) => `<button type="button" class="chip${(d.train || '') === k ? ' active' : ''}" data-train="${k}">${l}</button>`).join('');
@@ -2171,6 +2179,7 @@ function savePlan(type) {
   if (d.where !== 'home' && type !== 'home' && d.homeTime) state.plans[key] = homeTimeToTs(key, d.homeTime);
   else if (!d.homeTime || d.where === 'home' || d.type === 'home') delete state.plans[key];
   save.plans();
+  if (d.where === 'town') state.settings.lastStationMins = d.stationMins;
   if (state.planDraft.where !== 'home') state.settings.lastWhere = state.planDraft.where;   // don't default future nights to the sofa
   state.settings.lastRule = state.planDraft.rule;
   save.settings();
@@ -2186,7 +2195,7 @@ function setHome(hhmm) {
   save.plans();
   closeSheets();
   const town = (state.goals[key] || {}).where === 'town';
-  if (hhmm) showToast(town ? `🚆 Last train ${hhmm}. Leave by ${fmtTime(state.plans[key] - 20 * MIN)}.` : '🏠 Home by ' + hhmm + '. Hold yourself to it.', false);
+  if (hhmm) showToast(town ? `🚆 Last train ${hhmm}. Leave by ${fmtTime(state.plans[key] - stationMinsFor(key) * MIN)}.` : '🏠 Home by ' + hhmm + '. Hold yourself to it.', false);
   render();
 }
 
@@ -2278,6 +2287,10 @@ function bind() {
   $('planHomeChips').addEventListener('click', e => {
     const b = e.target.closest('[data-ht]');
     if (b) { state.planDraft.homeTime = b.dataset.ht || null; renderPlanSheet(); }
+  });
+  $('stationChips').addEventListener('click', e => {
+    const b = e.target.closest('[data-sm]');
+    if (b) { state.planDraft.stationMins = Number(b.dataset.sm); renderPlanSheet(); }
   });
   $('planHomeTime').addEventListener('change', e => { state.planDraft.homeTime = e.target.value || null; renderPlanSheet(); });
   $('trainChips').addEventListener('click', e => {
@@ -2557,6 +2570,7 @@ function showUpdateBanner(worker) {
 function applyUpdate() {
   if (!updates.waiting) return;
   $('updateBtn').textContent = 'Updating…';
+  updates.applying = true;
   updates.waiting.postMessage('SKIP_WAITING');
 }
 
@@ -2591,7 +2605,9 @@ function showVersion() {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (updates.refreshing) return;
+    showVersion();
+    // Only reload when you tapped Update (not when a first install takes control).
+    if (!updates.applying || updates.refreshing) return;
     updates.refreshing = true;
     window.location.reload();
   });
