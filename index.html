@@ -191,6 +191,26 @@
     </div>
   </div>
 
+  <!-- Morning check-in -->
+  <div class="sheet-backdrop" id="morningSheet" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>🌅 Morning check-in</h2>
+        <button type="button" class="btn-x" data-close aria-label="Close">✕</button>
+      </div>
+      <p class="sheet-note" id="mNight"></p>
+      <div class="mq"><span>How's the head?</span><div class="prompt-faces" id="mHead"></div></div>
+      <div class="mq"><span>Sleep</span><div class="chips" id="mSleep"></div></div>
+      <div class="mq"><span>Anything else? (tap any)</span><div class="chips" id="mSym"></div></div>
+      <div class="mq"><span>Training today</span><div class="chips" id="mTrain"></div></div>
+      <div class="mq"><span>Worth it?</span><div class="chips" id="mWorth"></div></div>
+      <div class="sheet-actions">
+        <button type="button" class="btn-primary" id="mSave">Save check-in</button>
+        <button type="button" class="btn-secondary" id="mLater">Later</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Plan sheet -->
   <div class="sheet-backdrop" id="planSheet" hidden>
     <div class="sheet">

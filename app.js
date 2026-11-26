@@ -669,9 +669,13 @@ function tomorrowTier(a, u) {
   const day = tmr.toLocaleDateString('en-GB', { weekday: 'long' });
   const after = new Date(tmr); after.setDate(after.getDate() + 1);
   const day2 = after.toLocaleDateString('en-GB', { weekday: 'long' });
-  const tier = u < 4 ? 0 : u < 8 ? 1 : u < 12 ? 2 : u < 16 ? 3 : 4;
+  let tier = u < 4 ? 0 : u < 8 ? 1 : u < 12 ? 2 : u < 16 ? 3 : 4;
+  // If your own mornings say nights like this are worse, believe them over the rule of thumb.
+  const ph = u >= 2 ? personalHistory(u, a.key) : null;
+  const personal = !!(ph && ph.topCount * 2 >= ph.n && ph.top > tier);
+  if (personal) tier = Math.min(4, ph.top);
   return {
-    tier,
+    tier, personal,
     extra: [0, 2, 6, 12, 30][tier],          // hours of feeling rough after you hit zero
     day,
     short: ['fine. Gym and runs are on',
@@ -694,23 +698,69 @@ function tomorrowNudge(a) {
   if (u < 2) return null;
   const t = tomorrowTier(a, u);
   let text = t.text;
-  if (a.soberAt && u >= 4) text += ` Feeling normal by <b>${fmtFeelTime(a.soberAt + t.extra * HOUR)}</b>.`;
+  if (a.soberAt && u >= 4) text += ` Feeling normal by <b>${fmtFeelTime(a.soberAt + t.extra * (recoveryFactor() || 1) * HOUR)}</b>.`;
   return { icon: '🏋️', label: 'Tomorrow', text };
 }
 
 // "tomorrow late morning" / "Saturday afternoon". You feel a hangover when you're awake,
 // so anything overnight rounds forward to the morning.
+// "~10:30 tomorrow". Rounded to the quarter hour: specific, without pretending to be exact.
+// You feel a hangover when you're awake, so anything overnight rounds forward to 8am.
 function fmtFeelTime(ts) {
-  const d = new Date(ts);
+  const d = new Date(Math.round(ts / (15 * MIN)) * 15 * MIN);
   if (d.getHours() < 8) d.setHours(8, 0, 0, 0);
   if (d.getHours() >= 23) { d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); }
-  const h = d.getHours();
-  const part = h < 10 ? 'morning' : h < 12 ? 'late morning' : h < 14 ? 'lunchtime' : h < 16 ? 'mid-afternoon' : h < 18 ? 'late afternoon' : 'evening';
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const day0 = new Date(d); day0.setHours(0, 0, 0, 0);
   const days = Math.round((day0 - today) / (24 * HOUR));
   const dayWord = days <= 0 ? 'today' : days === 1 ? 'tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'long' });
-  return `${dayWord} ${part}`;
+  return `~${fmtTime(d.getTime())} ${dayWord}`;
+}
+
+/* ---------------- Morning check-ins: what actually happened ---------------- */
+
+const SLEEPS = ['Great', 'OK', 'Broken', 'Barely slept'];
+const SYMPTOMS = ['Headache', 'Tired', 'Achy', 'Queasy', 'Anxious', 'Foggy', 'Thirsty'];
+const TRAINING = ['Going', 'Easy session', 'Skipping', 'Rest day anyway'];
+const WORTH = ['👍 Yes', '🤷 Meh', '👎 No'];
+
+// Old saves stored just a number for the head; newer ones store the full check-in.
+function morningOf(k) {
+  const m = state.mornings[k];
+  if (typeof m === 'number') return { head: m };
+  return m && typeof m === 'object' ? m : null;
+}
+const headOf = k => { const m = morningOf(k); return m && m.head != null ? m.head : null; };
+
+// How you actually recover vs the rule of thumb: >1 means you recover slower than predicted.
+function recoveryFactor() {
+  const diffs = [];
+  for (const k of Object.keys(state.mornings)) {
+    const h = headOf(k);
+    if (h == null) continue;
+    const u = nightSummary(k).units;
+    if (u < 2) continue;
+    const predicted = u < 4 ? 0 : u < 8 ? 1 : u < 12 ? 2 : u < 16 ? 3 : 4;
+    diffs.push(h - predicted);
+  }
+  if (diffs.length < 2) return null;
+  const avg = sum(diffs, d => d) / diffs.length;
+  return Math.min(1.6, Math.max(0.6, 1 + 0.25 * avg));
+}
+
+// Your own record for nights like this one.
+function personalHistory(units, excludeKey) {
+  const band = Math.max(2, units * 0.3);
+  const near = Object.keys(state.mornings)
+    .filter(k => k !== excludeKey && headOf(k) != null)
+    .map(k => ({ k, m: morningOf(k), u: nightSummary(k).units }))
+    .filter(x => x.u > 0 && Math.abs(x.u - units) <= band);
+  if (near.length < 2) return null;
+  const counts = MORNINGS.map((_, i) => near.filter(x => x.m.head === i).length);
+  const top = counts.indexOf(Math.max(...counts));
+  const slept = near.filter(x => x.m.sleep != null);
+  const badSleep = slept.filter(x => x.m.sleep >= 2).length;
+  return { n: near.length, top, topCount: counts[top], slept: slept.length, badSleep };
 }
 
 // The positive version, in plain terms: what stopping now saves, versus one more.
@@ -732,7 +782,7 @@ function stopNow(a, g) {
     const floor = new Date(tmr);
     const [d, h] = [[0, 8], [0, 9], [0, cared ? 11 : 12], [0, cared ? 14 : 16], [1, cared ? 9 : 12]][tier];
     floor.setDate(floor.getDate() + d); floor.setHours(h, 0, 0, 0);
-    const extra = [0, 2, 6, 12, 30][tier] * (cared ? 0.6 : 1);
+    const extra = [0, 2, 6, 12, 30][tier] * (cared ? 0.6 : 1) * (recoveryFactor() || 1);
     return Math.max(from + extra * HOUR, floor.getTime());
   };
   const okPlain = okBy(now.tier, zero, false);
@@ -761,6 +811,14 @@ function stopNow(a, g) {
   else if (next.tier > now.tier) lines.push(`🍺 <b>One more pint</b> turns this into ${TOMORROW_LABEL[next.tier]}${nextFeel !== nowFeel ? `: OK by <b>${nextFeel}</b> instead` : ''}.`);
   else if (nextFeel !== nowFeel) lines.push(`🍺 <b>One more pint</b> pushes feeling OK back to <b>${nextFeel}</b>.`);
   else lines.push(`🍺 <b>One more pint</b>: you'd probably get away with it. It's the one after that starts costing you.`);
+
+  const ph = personalHistory(u, a.key);
+  if (ph) {
+    let t = `📓 <b>Your history:</b> after nights around ≈${fmtPints(pintEq(u))} pints you woke up <b>${MORNINGS[ph.top].label}</b> ${ph.topCount} of ${ph.n} times.`;
+    if (ph.slept >= 2 && ph.badSleep * 2 >= ph.slept) t += ` Sleep was broken ${ph.badSleep} of ${ph.slept}.`;
+    lines.push(t);
+  }
+  if (recoveryFactor()) lines[0] += ' <span class="feel-note">(adjusted to your mornings)</span>';
 
   // Gym and work, in plain terms
   lines.push(`🏋️ ${now.day}'s gym: <b>${['on', 'easy session only', 'not before the afternoon', 'off', `off until ${day2Name}`][now.tier]}</b>.`);
@@ -1333,18 +1391,81 @@ function pendingMorning(a) {
   return null;
 }
 
+// After a heavy night you said was rough: the day after, is it still with you?
+function pendingDay2(a) {
+  const d = keyToDate(a.key); d.setDate(d.getDate() - 2);
+  const k = nightKey(d.getTime() + 12 * HOUR);
+  const m = morningOf(k);
+  if (!m || m.head == null || m.head < 2 || m.day2 != null) return null;
+  const s = nightSummary(k);
+  return s.units >= 10 ? s : null;
+}
+
+function nightBlurb(night) {
+  const g = state.goals[night.key];
+  return `${fmtNight(night.key)}: ${plural(night.drinks.length, 'drink')} · ≈${fmtPints(pintEq(night.units))} pints` +
+    (g && GOALS[g.type] ? ` (planned ${g.target})` : '');
+}
+
 function renderMorningCard(a) {
   const card = $('morningCard');
   const night = pendingMorning(a);
-  card.hidden = !night;
-  if (!night) return;
-  card.innerHTML = `
-    <div class="prompt-title">Morning! How's the head?</div>
-    <div class="prompt-sub">After ${fmtNight(night.key)}: ${plural(night.drinks.length, 'drink')} · ${fmtUnits(night.units)} units${
-      state.goals[night.key] && GOALS[state.goals[night.key].type] ? ` (planned ${state.goals[night.key].target}, had ≈${fmtPints(pintEq(night.units))})` : ''}</div>
-    <div class="prompt-faces">${MORNINGS.map((m, i) =>
-      `<button data-morning="${i}" data-key="${night.key}">${m.emoji}<span>${m.label}</span></button>`).join('')}</div>
-    <button class="prompt-skip" data-morning="skip" data-key="${night.key}">Skip</button>`;
+  const day2 = !night && pendingDay2(a);
+  card.hidden = !night && !day2;
+  if (night) {
+    card.innerHTML = `
+      <div class="prompt-title">🌅 Morning! How was last night?</div>
+      <div class="prompt-sub">${nightBlurb(night)}. Twenty seconds, and the predictions learn how you actually recover.</div>
+      <button class="btn-primary prompt-go" data-mstart="${night.key}">Start morning check-in</button>
+      <button class="prompt-skip" data-morning="skip" data-key="${night.key}">Skip</button>`;
+    // Pop it open once, the first time you open the app that morning.
+    if (state.autoMorning !== night.key) {
+      state.autoMorning = night.key;
+      setTimeout(() => openMorningSheet(night.key), 400);
+    }
+  } else if (day2) {
+    const name = keyToDate(day2.key).toLocaleDateString('en-GB', { weekday: 'long' });
+    card.innerHTML = `
+      <div class="prompt-title">Still feeling ${name}?</div>
+      <div class="prompt-sub">${nightBlurb(day2)}. Checks whether big nights really take you two days.</div>
+      <div class="prompt-faces">${['Yes', 'A bit', 'No'].map((t, i) =>
+        `<button data-day2="${2 - i}" data-key="${day2.key}">${['😩', '😐', '💪'][i]}<span>${t}</span></button>`).join('')}</div>`;
+  }
+}
+
+function openMorningSheet(key) {
+  const night = nightSummary(key);
+  const prev = morningOf(key) || {};
+  state.mDraft = { key, head: prev.head ?? null, sleep: prev.sleep ?? null, sym: [...(prev.sym || [])], train: prev.train ?? null, worth: prev.worth ?? null };
+  $('mNight').textContent = nightBlurb(night) + '.';
+  renderMorningSheet();
+  openSheet('morningSheet');
+}
+
+function renderMorningSheet() {
+  const d = state.mDraft;
+  const chips = (q, opts, isOn) => opts.map((o, i) =>
+    `<button type="button" class="chip${isOn(i) ? ' active' : ''}" data-q="${q}" data-v="${i}">${o}</button>`).join('');
+  $('mHead').innerHTML = MORNINGS.map((m, i) =>
+    `<button type="button" class="${d.head === i ? 'active' : ''}" data-q="head" data-v="${i}">${m.emoji}<span>${m.label}</span></button>`).join('');
+  $('mSleep').innerHTML = chips('sleep', SLEEPS, i => d.sleep === i);
+  $('mSym').innerHTML = chips('sym', SYMPTOMS, i => d.sym.includes(i));
+  $('mTrain').innerHTML = chips('train', TRAINING, i => d.train === i);
+  $('mWorth').innerHTML = chips('worth', WORTH, i => d.worth === i);
+  $('mSave').disabled = d.head == null;
+  $('mSave').textContent = d.head == null ? 'Pick how your head is first' : 'Save check-in';
+}
+
+function saveMorning() {
+  const d = state.mDraft;
+  if (!d || d.head == null) return;
+  const prev = morningOf(d.key) || {};
+  state.mornings[d.key] = { ...prev, head: d.head, sleep: d.sleep, sym: d.sym, train: d.train, worth: d.worth, ts: Date.now() };
+  save.mornings();
+  closeSheets();
+  const tips = ['Nice. Enjoy the day.', 'Good stuff. Water and a proper breakfast.', 'Water, food, fresh air. It passes.', 'Water, salty food, a walk. Go easy on yourself.', 'Survival mode: water, food, sofa. It does end.'];
+  showToast(`${MORNINGS[d.head].emoji} ${tips[d.head]}`, false);
+  render();
 }
 
 /* ---------------- Rendering: other views ---------------- */
@@ -1468,21 +1589,35 @@ function renderHistory(a) {
   }
   const dpFed = personalDrunkPoint(null, true), dpEmpty = personalDrunkPoint(null, false);
   if (dpFed && dpEmpty) ins.push(`With food in you that's <b>${fmtUnits(dpFed.units)} units</b>. On an empty stomach, <b>${fmtUnits(dpEmpty.units)}</b>.`);
-  const rated = keys.filter(k => typeof state.mornings[k] === 'number').map(k => ({ lvl: state.mornings[k], s: nightSummary(k) }));
-  const good = rated.filter(r => r.lvl <= 1), bad = rated.filter(r => r.lvl >= 2);
-  if (good.length && bad.length) {
-    ins.push(`Good mornings followed nights of about <b>${fmtUnits(sum(good, r => r.s.units) / good.length)} units</b>. Rough ones followed <b>${fmtUnits(sum(bad, r => r.s.units) / bad.length)} units</b>.`);
-  } else if (bad.length) {
-    ins.push(`Rough mornings so far followed nights of about <b>${fmtUnits(sum(bad, r => r.s.units) / bad.length)} units</b>.`);
-  }
+  const rated = keys.filter(k => headOf(k) != null).map(k => ({ m: morningOf(k), s: nightSummary(k) }));
+  const avgP = arr => `≈${fmtPints(pintEq(sum(arr, r => r.s.units) / arr.length))} pints`;
+  const good = rated.filter(r => r.m.head <= 1), bad = rated.filter(r => r.m.head >= 2);
+  if (good.length && bad.length) ins.push(`Good mornings followed nights of <b>${avgP(good)}</b>. Rough ones followed <b>${avgP(bad)}</b>.`);
+  else if (bad.length) ins.push(`Rough mornings so far followed nights of <b>${avgP(bad)}</b>.`);
+  const slept = rated.filter(r => r.m.sleep != null);
+  const brokenSleep = slept.filter(r => r.m.sleep >= 2);
+  if (brokenSleep.length >= 2) ins.push(`Sleep was broken on <b>${brokenSleep.length} of ${slept.length}</b> nights you logged, usually after <b>${avgP(brokenSleep)}</b>.`);
+  SYMPTOMS.map((name, i) => ({ name, hits: rated.filter(r => (r.m.sym || []).includes(i)) }))
+    .filter(x => x.hits.length >= 2).sort((a, b) => b.hits.length - a.hits.length).slice(0, 2)
+    .forEach(x => ins.push(`<b>${x.name}</b> mornings follow nights of <b>${avgP(x.hits)}</b> (${x.hits.length} times).`));
+  const fedN = rated.filter(r => r.s.food.length), hungry = rated.filter(r => !r.s.food.length);
+  const typical = arr => MORNINGS[Math.round(sum(arr, r => r.m.head) / arr.length)].label;
+  if (fedN.length && hungry.length) ins.push(`Mornings after eating: usually <b>${typical(fedN)}</b>. Without food: usually <b>${typical(hungry)}</b>.`);
+  const bigTrain = rated.filter(r => r.s.units >= 10 && r.m.train != null && r.m.train !== 3);
+  if (bigTrain.length >= 2) ins.push(`After big nights you skipped training <b>${bigTrain.filter(r => r.m.train === 2).length} of ${bigTrain.length}</b> times.`);
+  const yes = rated.filter(r => r.m.worth === 0), no = rated.filter(r => r.m.worth === 2);
+  if (yes.length && no.length) ins.push(`Worth it? 👍 at <b>${avgP(yes)}</b>, 👎 at <b>${avgP(no)}</b>.`);
+  const heavy = rated.filter(r => r.m.day2 != null);
+  if (heavy.length) ins.push(`Big nights stayed with you into day two <b>${heavy.filter(r => r.m.day2 >= 1).length} of ${heavy.length}</b> times.`);
+  const rf = recoveryFactor();
+  if (rf && Math.abs(rf - 1) >= 0.1) ins.push(`You recover <b>${rf > 1 ? 'slower' : 'quicker'}</b> than the rule of thumb, so "feel OK by" times are adjusted for you.`);
   $('insights').hidden = !ins.length;
   $('insights').innerHTML = `<div class="week-label">What we've learned</div>` + ins.map(t => `<p>${t}</p>`).join('');
 
   $('historyList').innerHTML = keys.map(k => {
     const s = nightSummary(k);
-    const m = state.mornings[k];
     const gl = state.goals[k] && GOALS[state.goals[k].type] ? state.goals[k] : null;
-    const emojis = (gl ? GOALS[gl.type].emoji + (pintEq(s.units) <= gl.target + PLAN_SLACK ? '✅' : '❌') : '') + (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (typeof m === 'number' ? MORNINGS[m].emoji : '');
+    const emojis = (gl ? GOALS[gl.type].emoji + (pintEq(s.units) <= gl.target + PLAN_SLACK ? '✅' : '❌') : '') + (s.food.length ? '🍔' : '') + (s.peakFeeling != null ? FEELINGS[s.peakFeeling].emoji : '') + (headOf(k) != null ? MORNINGS[headOf(k)].emoji : '');
     return `
       <li class="night">
         <button class="night-head" data-night="${k}">
@@ -1816,14 +1951,29 @@ function bind() {
     if (b.dataset.action === 'water') logWater();
   });
   $('morningCard').addEventListener('click', e => {
+    const start = e.target.closest('[data-mstart]');
+    if (start) return openMorningSheet(start.dataset.mstart);
+    const d2 = e.target.closest('[data-day2]');
+    if (d2) {
+      const k = d2.dataset.key;
+      state.mornings[k] = { ...(morningOf(k) || {}), day2: Number(d2.dataset.day2) };
+      save.mornings();
+      showToast(Number(d2.dataset.day2) ? 'Noted. Go easy on yourself today.' : '💪 Back to normal. Noted.', false);
+      return render();
+    }
     const b = e.target.closest('[data-morning]');
-    if (!b) return;
-    const v = b.dataset.morning;
-    state.mornings[b.dataset.key] = v === 'skip' ? 'skip' : Number(v);
-    save.mornings();
-    if (v !== 'skip') showToast(MORNINGS[Number(v)].emoji + ' Noted. Drink some water.', false);
-    render();
+    if (b) { state.mornings[b.dataset.key] = 'skip'; save.mornings(); render(); }
   });
+  $('morningSheet').addEventListener('click', e => {
+    const b = e.target.closest('[data-q]');
+    if (!b) return;
+    const d = state.mDraft, v = Number(b.dataset.v), q = b.dataset.q;
+    if (q === 'sym') d.sym = d.sym.includes(v) ? d.sym.filter(x => x !== v) : [...d.sym, v];
+    else d[q] = d[q] === v ? null : v;
+    renderMorningSheet();
+  });
+  $('mSave').addEventListener('click', saveMorning);
+  $('mLater').addEventListener('click', closeSheets);
 
   $('feelFaces').innerHTML = FEELINGS.map((f, i) =>
     `<button data-feel="${i}">${f.emoji}<span>${f.label}<small>${f.sub}</small></span></button>`).join('');
