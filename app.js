@@ -74,6 +74,7 @@ const RULES = {
 const TRAINS = {
   gym:  { emoji: '🏋️', label: 'Gym',  noun: 'gym session', cap: 3 },
   run:  { emoji: '🏃', label: 'Run',  noun: 'run',         cap: 3 },
+  swim: { emoji: '🏊', label: 'Swim', noun: 'swim',        cap: 3 },
   race: { emoji: '🏁', label: 'Race', noun: 'race',        cap: 1 },
 };
 const WORK_CAP = 4;
@@ -945,6 +946,7 @@ function stopNow(a, g) {
   const trainWords = {
     gym:  ['on', 'easy session only, no PBs', 'light session, not before the afternoon', 'off: rest day instead', `off until ${day2Name}`],
     run:  ['on', 'easy pace only', 'short and easy, afternoon at best', 'off: walk instead', `off until ${day2Name}`],
+    swim: ['on', 'easy technique session', 'short and gentle, afternoon at best', 'off', `off until ${day2Name}`],
     race: ['fine', "you'll be below par", 'hard going, and it will show', 'a real struggle: think about whether to start', 'not happening'],
   };
   let gymLine = tr
@@ -2134,7 +2136,7 @@ function renderPlanSheet() {
     ? `⚠️ ${d.target - sug.aim} over what keeps tomorrow OK (${sug.aim}: ${sug.why.join(' + ')}). Your call.`
     : sug.why.length ? `Suggested ${sug.aim}: ${sug.why.join(' + ')}.` : '';
   $('aimNote').className = 'aim-note' + (d.target > sug.aim ? ' over' : '');
-  $('whereToggle').hidden = d.type === 'home';
+  $('whereToggle').closest('.plan-sec').hidden = d.type === 'home';
   $('trainChips').innerHTML = [['', 'None']].concat(Object.entries(TRAINS).map(([k, t]) => [k, `${t.emoji} ${t.label}`]))
     .map(([k, l]) => `<button type="button" class="chip${(d.train || '') === k ? ' active' : ''}" data-train="${k}">${l}</button>`).join('');
   $('workToggle').classList.toggle('active', !!d.work);
@@ -2260,10 +2262,6 @@ function bind() {
     if (b) { state.planDraft.train = b.dataset.train || null; state.planDraft.manual = false; renderPlanSheet(); }
   });
   $('workToggle').addEventListener('click', () => { state.planDraft.work = !state.planDraft.work; state.planDraft.manual = false; renderPlanSheet(); });
-  $('whyChips').addEventListener('click', e => {
-    const b = e.target.closest('[data-why]');
-    if (b) $('planWhy').value = b.dataset.why;
-  });
   $('ruleChips').addEventListener('click', e => {
     const b = e.target.closest('[data-rule]');
     if (b) { state.planDraft.rule = b.dataset.rule; renderPlanSheet(); }

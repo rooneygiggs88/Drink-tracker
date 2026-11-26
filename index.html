@@ -245,22 +245,22 @@
         <span>pints</span>
       </div>
       <p class="aim-note" id="aimNote"></p>
-      <div class="mq"><span>Training tomorrow</span><div class="chips" id="trainChips"></div></div>
-      <div class="toggles">
-        <button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button>
-        <button type="button" class="chip toggle" id="whereToggle">📍 Local</button>
+      <div class="plan-sec">
+        <div class="plan-sec-head">Tomorrow</div>
+        <div class="chips" id="trainChips"></div>
+        <div class="toggles left"><button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button></div>
+        <label class="field">
+          <span>Anything specific? (optional)</span>
+          <input id="planWhy" type="text" maxlength="60" placeholder="e.g. parkrun 9am · gym at 7 · big meeting">
+        </label>
       </div>
-      <div class="mq"><span>When I hit my plan, I'll…</span><div class="chips" id="ruleChips"></div></div>
-      <label class="field">
-        <span>Tomorrow I want to… (optional)</span>
-        <input id="planWhy" type="text" maxlength="60" placeholder="e.g. Gym at 7 · parkrun · be sharp for work">
-      </label>
-      <div class="chips why-chips" id="whyChips">
-        <button type="button" class="chip" data-why="Long run">🏃 Long run</button>
-        <button type="button" class="chip" data-why="Gym session">🏋️ Gym</button>
-        <button type="button" class="chip" data-why="Swim">🏊 Swim</button>
-        <button type="button" class="chip" data-why="Race / event">🏁 Race</button>
-        <button type="button" class="chip" data-why="Big day at work">💼 Big work day</button>
+      <div class="plan-sec">
+        <div class="plan-sec-head">Getting home</div>
+        <div class="toggles left"><button type="button" class="chip toggle" id="whereToggle">📍 Local</button></div>
+      </div>
+      <div class="plan-sec">
+        <div class="plan-sec-head">When I hit my plan, I'll…</div>
+        <div class="chips" id="ruleChips"></div>
       </div>
       <div class="sheet-actions">
         <button type="button" class="btn-primary" id="planSave">Set plan</button>
