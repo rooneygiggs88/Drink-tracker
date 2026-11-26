@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#14110d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Drinks">
+  <title>Drink Tracker</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="stats" id="stats">
+    <div class="stats-label" id="nightLabel">Tonight</div>
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-num" id="statDrinks">0</div>
+        <div class="stat-name">drinks</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="statUnits">0.0</div>
+        <div class="stat-name">units</div>
+      </div>
+    </div>
+    <div class="stats-sub" id="statSub">Nothing logged yet</div>
+  </header>
+
+  <main>
+    <!-- ADD -->
+    <section class="view" id="view-add">
+      <div class="cats" id="cats"></div>
+      <div class="grid" id="grid"></div>
+      <p class="hint" id="editHint" hidden>Edit mode: tap a drink to change or remove it.</p>
+    </section>
+
+    <!-- TONIGHT -->
+    <section class="view" id="view-tonight" hidden>
+      <ul class="log" id="tonightList"></ul>
+      <p class="empty" id="tonightEmpty">No drinks yet tonight.</p>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="view" id="view-history" hidden>
+      <div class="week" id="weekSummary"></div>
+      <ul class="nights" id="historyList"></ul>
+      <p class="empty" id="historyEmpty">No history yet.</p>
+      <div class="data-tools">
+        <button class="btn-ghost" id="exportBtn">Export backup</button>
+        <button class="btn-ghost" id="importBtn">Import backup</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" hidden>
+    <span id="toastText"></span>
+    <button id="toastUndo">Undo</button>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab active" data-view="add">Add</button>
+    <button class="tab" data-view="tonight">Tonight <span class="badge" id="tonightBadge" hidden></span></button>
+    <button class="tab" data-view="history">History</button>
+  </nav>
+
+  <!-- Drink editor sheet -->
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden>
+    <form class="sheet" id="drinkForm" autocomplete="off">
+      <div class="sheet-head">
+        <h2 id="sheetTitle">Add your own</h2>
+        <button type="button" class="btn-x" id="sheetClose" aria-label="Close">✕</button>
+      </div>
+
+      <label class="field">
+        <span>Name</span>
+        <input id="fName" type="text" placeholder="e.g. Lidl Lager" required maxlength="40">
+      </label>
+
+      <label class="field">
+        <span>Strength (% ABV)</span>
+        <input id="fAbv" type="text" inputmode="decimal" placeholder="e.g. 4.5" required>
+      </label>
+
+      <div class="field">
+        <span>Size</span>
+        <div class="chips" id="sizeChips"></div>
+        <input id="fMl" type="text" inputmode="numeric" placeholder="Size in ml" hidden>
+      </div>
+
+      <div class="field">
+        <span>Type</span>
+        <div class="chips" id="catChips"></div>
+      </div>
+
+      <div class="preview" id="unitPreview">— units</div>
+
+      <div class="sheet-actions">
+        <button type="submit" class="btn-primary" id="saveLogBtn" data-action="savelog">Save &amp; log one</button>
+        <button type="submit" class="btn-secondary" id="saveBtn" data-action="save">Save to library</button>
+        <button type="button" class="btn-danger" id="deleteBtn" hidden>Remove from library</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
