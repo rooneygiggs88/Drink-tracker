@@ -37,6 +37,13 @@
 
       <div class="now-body">
         <div class="card prompt" id="morningCard" hidden></div>
+        <div class="card clear" id="clearCard" hidden>
+          <div class="tile-label">🫀 Back to zero in</div>
+          <div class="clear-clock" id="clearClock">00:00:00</div>
+          <div class="clear-sub"><b id="clearUnits">0.000</b> units left · zero around <b id="clearWhen">—</b></div>
+          <div class="clear-track"><div class="clear-fill" id="clearFill"></div></div>
+          <div class="clear-note">Your body clears roughly 1 unit an hour. A rough guide, never a driving test.</div>
+        </div>
         <div class="card prompt" id="checkinCard" hidden></div>
         <div class="card guide" id="guideCard"></div>
 
@@ -168,6 +175,21 @@
     </div>
   </div>
 
+  <!-- Hold-up sheet: a speed bump before a drink you said you wouldn't have -->
+  <div class="sheet-backdrop" id="holdSheet" hidden>
+    <div class="sheet hold">
+      <div class="hold-icon">✋</div>
+      <h2 id="holdTitle">Hold up</h2>
+      <p class="sheet-note" id="holdDrink"></p>
+      <ul class="guide-why" id="holdWhy"></ul>
+      <div class="sheet-actions">
+        <button type="button" class="btn-primary" id="holdWater">💧 Have a water instead</button>
+        <button type="button" class="btn-secondary" id="holdDone">🛑 I'm done for the night</button>
+        <button type="button" class="btn-anyway" id="holdAnyway" disabled>Log it anyway (3)</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Plan sheet -->
   <div class="sheet-backdrop" id="planSheet" hidden>
     <div class="sheet">
@@ -182,7 +204,7 @@
         <button type="button" class="aim-btn" id="aimMinus" aria-label="Fewer">−</button>
         <b id="aimVal">2</b>
         <button type="button" class="aim-btn" id="aimPlus" aria-label="More">+</button>
-        <span>drinks</span>
+        <span>pints</span>
       </div>
       <button type="button" class="chip toggle" id="workToggle">🗓 Work tomorrow</button>
       <div class="sheet-actions">

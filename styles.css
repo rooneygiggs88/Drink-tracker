@@ -588,3 +588,33 @@ button.tile:active { transform: scale(.97); }
   font-weight: 800;
 }
 .chip.toggle { display: block; margin: 14px auto 0; padding: 11px 16px; font-size: 15px; }
+
+/* ---------- Countdown to zero ---------- */
+.card.clear { border-color: var(--accent); text-align: center; }
+.clear-clock {
+  font-size: 58px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 6px;
+  line-height: 1.05;
+}
+.clear-sub { font-size: 15px; color: var(--muted); margin-top: 6px; }
+.clear-sub b { color: var(--text); font-variant-numeric: tabular-nums; }
+.clear-track { height: 10px; border-radius: 999px; background: var(--surface-2); margin-top: 14px; overflow: hidden; }
+.clear-fill { height: 100%; width: 2%; border-radius: 999px; background: linear-gradient(90deg, var(--lvl-2), var(--lvl-1), var(--lvl-0)); transition: width 1s linear; }
+.clear-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* ---------- Hold-up sheet ---------- */
+.sheet.hold { text-align: left; }
+.hold-icon { font-size: 44px; text-align: center; }
+.sheet.hold h2 { margin: 4px 0 0; font-size: 24px; text-align: center; line-height: 1.25; }
+.sheet.hold .sheet-note { text-align: center; }
+.btn-anyway {
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: underline;
+}
+.btn-anyway:disabled { opacity: .45; text-decoration: none; }
