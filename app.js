@@ -2551,6 +2551,7 @@ const updates = { reg: null, waiting: null, refreshing: false };
 function showUpdateBanner(worker) {
   updates.waiting = worker;
   $('updateBanner').hidden = false;
+  document.body.classList.add('has-update');
 }
 
 function applyUpdate() {
@@ -2604,5 +2605,5 @@ if ('serviceWorker' in navigator) {
   });
 }
 $('updateBtn').addEventListener('click', applyUpdate);
-$('updateLater').addEventListener('click', () => { $('updateBanner').hidden = true; });
+$('updateLater').addEventListener('click', () => { $('updateBanner').hidden = true; document.body.classList.remove('has-update'); });
 $('checkUpdates').addEventListener('click', () => checkForUpdates(true));

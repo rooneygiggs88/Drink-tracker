@@ -871,3 +871,7 @@ button.tile:active { transform: scale(.97); }
 .update-btn { padding: 10px 16px; border-radius: 12px; background: var(--accent-ink); color: var(--accent); font-weight: 900; }
 .update-later { padding: 6px 8px; font-size: 16px; color: var(--accent-ink); opacity: .7; }
 #checkUpdates { width: 100%; margin-top: 8px; }
+
+/* Update banner lives at the bottom, above the tab bar (clear of the pinned tally) */
+.update-banner { top: auto; bottom: calc(var(--tabs-h) + var(--safe-bottom) + 12px); }
+body.has-update .toast, body.has-update .install-tip { bottom: calc(var(--tabs-h) + var(--safe-bottom) + 80px); }
