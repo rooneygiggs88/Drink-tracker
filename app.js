@@ -2120,6 +2120,7 @@ function openPlanSheet() {
         rule: state.settings.lastRule || 'nolo', why: '', train: null, manual: false };
   if (!state.planDraft.manual) state.planDraft.target = suggestAim(state.planDraft).aim;
   $('planWhy').value = state.planDraft.why || '';
+  state.planDraft.homeTime = state.plans[key] ? fmtTime(state.plans[key]) : null;
   renderPlanSheet();
   openSheet('planSheet');
 }
@@ -2140,6 +2141,16 @@ function renderPlanSheet() {
     : sug.why.length ? `Suggested ${sug.aim}: ${sug.why.join(' + ')}.` : '';
   $('aimNote').className = 'aim-note' + (d.target > sug.aim ? ' over' : '');
   $('whereToggle').closest('.plan-sec').hidden = d.type === 'home';
+  const town = d.where === 'town';
+  $('homeRow').hidden = d.where === 'home';
+  $('homeRowLabel').textContent = town ? 'Last train' : 'Home by';
+  // Only offer times still ahead tonight (picking 23:15 at 23:30 would be an instant "missed").
+  const key = nightKey(Date.now());
+  const times = (town ? ['22:00', '22:30', '23:00', '23:15', '23:30', '23:45', '00:15'] : ['21:00', '22:00', '23:00', '23:30', '00:00', '01:00', '02:00'])
+    .filter(t => homeTimeToTs(key, t) > Date.now() + 15 * MIN).slice(0, 5);
+  $('planHomeChips').innerHTML = times.map(t => `<button type="button" class="chip${d.homeTime === t ? ' active' : ''}" data-ht="${t}">${t}</button>`).join('') +
+    `<button type="button" class="chip${!d.homeTime ? ' active' : ''}" data-ht="">No time</button>`;
+  if (document.activeElement !== $('planHomeTime')) $('planHomeTime').value = d.homeTime && !times.includes(d.homeTime) ? d.homeTime : '';
   $('trainChips').innerHTML = [['', 'None']].concat(Object.entries(TRAINS).map(([k, t]) => [k, `${t.emoji} ${t.label}`]))
     .map(([k, l]) => `<button type="button" class="chip${(d.train || '') === k ? ' active' : ''}" data-train="${k}">${l}</button>`).join('');
   $('workToggle').classList.toggle('active', !!d.work);
@@ -2156,6 +2167,10 @@ function savePlan(type) {
   if (!state.planDraft.why && TRAINS[state.planDraft.train]) state.planDraft.why = TRAINS[state.planDraft.train].label + ' tomorrow';
   state.goals[key] = type === 'none' ? { type: 'none', where: state.planDraft.where, why: state.planDraft.why } : { ...state.planDraft };
   save.goals();
+  const d = state.planDraft;
+  if (d.where !== 'home' && type !== 'home' && d.homeTime) state.plans[key] = homeTimeToTs(key, d.homeTime);
+  else if (!d.homeTime || d.where === 'home' || d.type === 'home') delete state.plans[key];
+  save.plans();
   if (state.planDraft.where !== 'home') state.settings.lastWhere = state.planDraft.where;   // don't default future nights to the sofa
   state.settings.lastRule = state.planDraft.rule;
   save.settings();
@@ -2260,6 +2275,11 @@ function bind() {
   });
   $('aimMinus').addEventListener('click', () => { state.planDraft.manual = true; state.planDraft.target = Math.max(1, state.planDraft.target - 1); renderPlanSheet(); });
   $('aimPlus').addEventListener('click', () => { state.planDraft.manual = true; state.planDraft.target = Math.min(20, state.planDraft.target + 1); renderPlanSheet(); });
+  $('planHomeChips').addEventListener('click', e => {
+    const b = e.target.closest('[data-ht]');
+    if (b) { state.planDraft.homeTime = b.dataset.ht || null; renderPlanSheet(); }
+  });
+  $('planHomeTime').addEventListener('change', e => { state.planDraft.homeTime = e.target.value || null; renderPlanSheet(); });
   $('trainChips').addEventListener('click', e => {
     const b = e.target.closest('[data-train]');
     if (b) { state.planDraft.train = b.dataset.train || null; state.planDraft.manual = false; renderPlanSheet(); }

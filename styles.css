@@ -843,3 +843,9 @@ button.tile:active { transform: scale(.97); }
   box-shadow: 0 8px 24px rgba(0,0,0,.35);
 }
 .bar { box-shadow: 0 -12px 0 0 var(--bg), 0 8px 24px rgba(0,0,0,.35); }   /* cover the gap above when pinned */
+
+.plan-sub { font-size: 13px; color: var(--muted); font-weight: 600; margin: 14px 0 8px; }
+.time-input {
+  margin-top: 10px; width: 100%; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 17px;
+}
