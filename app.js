@@ -445,8 +445,8 @@ function pintsLeftText(unitsLeft) {
   const halves = Math.floor(unitsLeft / (PINT_UNITS / 2));
   if (halves < 1) return 'less than a half';
   if (halves === 1) return 'one half';
-  const pints = Math.floor(halves / 2);
-  return `${plural(pints, 'pint')} (${halves} halves)`;
+  const pe = halves / 2;
+  return `${fmtPints(pe)} ${pe <= 1 ? 'pint' : 'pints'} (${halves} halves)`;
 }
 
 /* ---------------- The guidance library ----------------
@@ -821,7 +821,16 @@ function stopNow(a, g) {
   if (recoveryFactor()) lines[0] += ' <span class="feel-note">(adjusted to your mornings)</span>';
 
   // Gym and work, in plain terms
-  lines.push(`🏋️ ${now.day}'s gym: <b>${['on', 'easy session only', 'not before the afternoon', 'off', `off until ${day2Name}`][now.tier]}</b>.`);
+  let gymLine = `🏋️ ${now.day}'s gym: <b>${['on', 'easy session only', 'not before the afternoon', 'off', `off until ${day2Name}`][now.tier]}</b>.`;
+  const band = Math.max(2, u * 0.3);
+  const trainedNights = Object.keys(state.mornings).filter(k => k !== a.key)
+    .map(k => ({ m: morningOf(k), u: nightSummary(k).units }))
+    .filter(x => x.m && x.m.did != null && x.u > 0 && Math.abs(x.u - u) <= band);
+  if (trainedNights.length >= 2) {
+    const went = trainedNights.filter(x => x.m.did !== 'none');
+    gymLine += ` <span class="feel-note">You trained after ${went.length} of ${trainedNights.length} nights like this${went.length ? `, and it felt rough ${went.filter(x => x.m.felt === 2).length} of ${went.length}` : ''}.</span>`;
+  }
+  lines.push(gymLine);
   if (a.goal && a.goal.work) {
     const eight = new Date(tmr); eight.setHours(8, 0, 0, 0);
     const at8 = a.inSystem - Math.max(0, (eight - a.now) / HOUR) * CLEAR_RATE;
@@ -1038,6 +1047,9 @@ function guidance(a) {
   let next;
   if (stop) next = '⛔ <b>No more tonight.</b>';
   else if (lastOne) next = '⛔ <b>After this one, no more.</b>';
+  else if (a.leaveAt && nextAt && nextAt > a.leaveAt - 20 * MIN) next = town
+    ? `⛔ <b>No time for another</b> before your ${fmtTime(a.home)} train.`
+    : `⛔ <b>No time for another</b> before home time (${fmtTime(a.home)}).`;
   else if (nextAt > now) next = `⏳ Next drink not before <b>${fmtTime(nextAt)}</b> · ${fmtDur(nextAt - now)} to wait`;
   else next = '⏳ No rush. About 45 minutes a pint keeps it steady.';
 
@@ -1232,6 +1244,9 @@ function renderNow(a) {
     ? `${G.emoji} ${G.label} · <b>≈${fmtPints(a.pe)} of ${a.goal.target}</b> pints${a.goal.work ? ' · 🗓' : ''}${a.town ? ' · 🚆' : ''}`
     : state.goals[a.key] ? '📊 Just tracking · tap to set a plan' : '🎯 Tap to plan tonight';
   $('nowHeadline').textContent = g.title;
+  const hc = homeClock(a);
+  $('nowClock').hidden = !hc;
+  if (hc) { $('nowClock').textContent = hc.text; $('nowClock').className = 'panel-clock lvl' + hc.lvl; }
   $('nowNext').innerHTML = g.next || '';
   $('nowNext').hidden = !g.next;
 
@@ -1392,6 +1407,28 @@ function pendingMorning(a) {
 }
 
 // After a heavy night you said was rough: the day after, is it still with you?
+const DID = [
+  { did: 'gym',  felt: 0,    emoji: '💪', label: 'Gym, good' },
+  { did: 'gym',  felt: 2,    emoji: '😮‍💨', label: 'Gym, rough' },
+  { did: 'run',  felt: 0,    emoji: '🏃', label: 'Run, good' },
+  { did: 'run',  felt: 2,    emoji: '🥵', label: 'Run, rough' },
+  { did: 'none', felt: null, emoji: '🛋️', label: "Didn't" },
+];
+
+// The day after a night out (from 5pm), or the day after that: did you actually train?
+function pendingTraining(a) {
+  for (const back of [1, 2]) {
+    const d = keyToDate(a.key); d.setDate(d.getDate() - back);
+    const k = nightKey(d.getTime() + 12 * HOUR);
+    const m = morningOf(k);
+    if (!m || m.did != null || m.train === 3) continue;
+    if (nightSummary(k).units < 2) continue;
+    if (back === 1 && new Date().getHours() < 17) continue;
+    return { key: k, when: back === 1 ? 'today' : 'yesterday' };
+  }
+  return null;
+}
+
 function pendingDay2(a) {
   const d = keyToDate(a.key); d.setDate(d.getDate() - 2);
   const k = nightKey(d.getTime() + 12 * HOUR);
@@ -1410,8 +1447,9 @@ function nightBlurb(night) {
 function renderMorningCard(a) {
   const card = $('morningCard');
   const night = pendingMorning(a);
-  const day2 = !night && pendingDay2(a);
-  card.hidden = !night && !day2;
+  const train = !night && pendingTraining(a);
+  const day2 = !night && !train && pendingDay2(a);
+  card.hidden = !night && !train && !day2;
   if (night) {
     card.innerHTML = `
       <div class="prompt-title">🌅 Morning! How was last night?</div>
@@ -1423,6 +1461,13 @@ function renderMorningCard(a) {
       state.autoMorning = night.key;
       setTimeout(() => openMorningSheet(night.key), 400);
     }
+  } else if (train) {
+    const name = keyToDate(train.key).toLocaleDateString('en-GB', { weekday: 'long' });
+    card.innerHTML = `
+      <div class="prompt-title">🏋️ Did you train ${train.when}?</div>
+      <div class="prompt-sub">After ${name}: ≈${fmtPints(pintEq(nightSummary(train.key).units))} pints. Teaches the app what nights out really cost your training.</div>
+      <div class="prompt-faces">${DID.map((o, i) =>
+        `<button data-did="${i}" data-key="${train.key}">${o.emoji}<span>${o.label}</span></button>`).join('')}</div>`;
   } else if (day2) {
     const name = keyToDate(day2.key).toLocaleDateString('en-GB', { weekday: 'long' });
     card.innerHTML = `
@@ -1470,12 +1515,29 @@ function saveMorning() {
 
 /* ---------------- Rendering: other views ---------------- */
 
+// "🚆 Leave in 35m · 23:34 train" / "🏠 Home in 1h 10m". Level: 0 calm, 1 last hour, 2 last 10 min or passed.
+function homeClock(a) {
+  if (!a.home || a.ended) return null;
+  const now = Date.now();
+  if (a.town) {
+    const left = a.leaveAt - now;
+    if (now > a.home) return { text: `🚆 Missed the ${fmtTime(a.home)}`, short: 'train missed', lvl: 2 };
+    if (left <= 0) return { text: `🚆 LEAVE NOW · ${fmtTime(a.home)} train`, short: 'leave NOW', lvl: 2 };
+    return { text: `🚆 Leave in ${fmtDur(left)} · ${fmtTime(a.home)} train`, short: `leave in ${fmtDur(left)}`, lvl: left <= 10 * MIN ? 2 : left <= HOUR ? 1 : 0 };
+  }
+  const left = a.home - now;
+  if (left <= 0) return { text: `🏠 Home time was ${fmtTime(a.home)}`, short: 'past home time', lvl: 2 };
+  return { text: `🏠 Home in ${fmtDur(left)} · by ${fmtTime(a.home)}`, short: `home in ${fmtDur(left)}`, lvl: left <= 10 * MIN ? 2 : left <= HOUR ? 1 : 0 };
+}
+
 function renderBar(a) {
   const bar = $('bar');
   bar.hidden = state.view === 'now';
   setLevelClass(bar, a.level);
   $('barMain').textContent = `${plural(a.n, 'drink')} · ${fmtUnits(a.s.units)} units`;
-  $('barSub').textContent = a.n ? `out ${fmtDur(a.elapsed)}` : '';
+  const hc = homeClock(a);
+  $('barSub').textContent = hc ? hc.short : a.n ? `out ${fmtDur(a.elapsed)}` : '';
+  $('barSub').classList.toggle('urgent', !!hc && hc.lvl === 2);
 }
 
 function usualDrinks() {
@@ -1607,6 +1669,14 @@ function renderHistory(a) {
   if (bigTrain.length >= 2) ins.push(`After big nights you skipped training <b>${bigTrain.filter(r => r.m.train === 2).length} of ${bigTrain.length}</b> times.`);
   const yes = rated.filter(r => r.m.worth === 0), no = rated.filter(r => r.m.worth === 2);
   if (yes.length && no.length) ins.push(`Worth it? 👍 at <b>${avgP(yes)}</b>, 👎 at <b>${avgP(no)}</b>.`);
+  const trainedR = rated.filter(r => r.m.did != null);
+  if (trainedR.length >= 2) {
+    const went = trainedR.filter(r => r.m.did !== 'none'), skipped = trainedR.filter(r => r.m.did === 'none');
+    let t = `You trained the day after <b>${went.length} of ${trainedR.length}</b> nights out`;
+    if (went.length && skipped.length) t += `: usually after <b>${avgP(went)}</b>, skipped after <b>${avgP(skipped)}</b>`;
+    if (went.length) t += `. It felt rough ${went.filter(r => r.m.felt === 2).length} of ${went.length} times`;
+    ins.push(t + '.');
+  }
   const heavy = rated.filter(r => r.m.day2 != null);
   if (heavy.length) ins.push(`Big nights stayed with you into day two <b>${heavy.filter(r => r.m.day2 >= 1).length} of ${heavy.length}</b> times.`);
   const rf = recoveryFactor();
@@ -1889,6 +1959,7 @@ function bind() {
     if (d) logDrink(d, true);
   });
   $('nowPlan').addEventListener('click', openPlanSheet);
+  $('nowClock').addEventListener('click', openHomeSheet);
   $('planOpts').addEventListener('click', e => {
     const b = e.target.closest('[data-goal]');
     if (!b) return;
@@ -1954,6 +2025,14 @@ function bind() {
     const start = e.target.closest('[data-mstart]');
     if (start) return openMorningSheet(start.dataset.mstart);
     const d2 = e.target.closest('[data-day2]');
+    const dd = e.target.closest('[data-did]');
+    if (dd) {
+      const o = DID[Number(dd.dataset.did)], k = dd.dataset.key;
+      state.mornings[k] = { ...(morningOf(k) || {}), did: o.did, felt: o.felt };
+      save.mornings();
+      showToast(o.did === 'none' ? '🛋️ Noted. Rest is training too (sort of).' : o.felt ? `${o.emoji} Noted. Respect for going.` : `${o.emoji} Nice. Noted.`, false);
+      return render();
+    }
     if (d2) {
       const k = d2.dataset.key;
       state.mornings[k] = { ...(morningOf(k) || {}), day2: Number(d2.dataset.day2) };
