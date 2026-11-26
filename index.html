@@ -70,6 +70,7 @@
     <section class="view" id="view-add" hidden>
       <div class="cats" id="cats"></div>
       <div class="grid" id="grid"></div>
+      <p class="hint" id="priceNote" hidden>🏠 At home tonight: showing shop prices. Edit a drink to set what you actually paid.</p>
       <p class="hint" id="editHint" hidden>Edit mode: tap a drink to change its strength, size or price — or remove it.</p>
     </section>
 
@@ -137,14 +138,18 @@
         <input id="fName" type="text" placeholder="e.g. Lidl Lager" required maxlength="40">
       </label>
 
+      <label class="field">
+        <span>Strength (% ABV)</span>
+        <input id="fAbv" type="text" inputmode="decimal" placeholder="4.5" required>
+      </label>
       <div class="field-row">
         <label class="field">
-          <span>Strength (% ABV)</span>
-          <input id="fAbv" type="text" inputmode="decimal" placeholder="4.5" required>
+          <span>Pub price £</span>
+          <input id="fPrice" type="text" inputmode="decimal" placeholder="5.50">
         </label>
         <label class="field">
-          <span>Price £ (optional)</span>
-          <input id="fPrice" type="text" inputmode="decimal" placeholder="5.50">
+          <span>Shop price £</span>
+          <input id="fHome" type="text" inputmode="decimal" placeholder="1.50">
         </label>
       </div>
 

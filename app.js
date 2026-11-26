@@ -177,6 +177,19 @@ const FOOD_KINDS = {
   meal:  { emoji: '🍽️', label: 'Meal',  lasts: 5 },
 };
 
+// Rough UK supermarket prices per ml, for drinking at home (editable per drink).
+const SHOP_PER_ML = { pints: 0.0032, halves: 0.0032, bottles: 0.0032, wine: 0.01, shots: 0.025, spirits: 0.025, cocktails: 0.02, nolo: 0.003 };
+function shopEstimate(d) {
+  return Math.max(0.3, Math.round(d.ml * (SHOP_PER_ML[d.cat] || 0.004) * 100) / 100);
+}
+const homePriceOf = d => (d.homePrice != null ? d.homePrice : shopEstimate(d));
+// Drinking at home tonight? (Night in, or any plan set to "At home".)
+function atHomeTonight(key = nightKey(Date.now())) {
+  const g = state.goals[key] || {};
+  return g.where === 'home' || g.type === 'home';
+}
+const priceTonight = d => (atHomeTonight() ? homePriceOf(d) : d.price);
+
 // The alcohol-free version of what you're drinking, for the "swap" suggestion.
 const SWAPS = [[/guinness/i, 'n-guinness'], [/peroni/i, 'n-peroni'], [/moretti/i, 'n-moretti'], [/stella/i, 'n-stella'],
   [/heineken/i, 'n-heineken'], [/madr/i, 'n-madri']];
@@ -485,6 +498,7 @@ function analyse() {
   const home = state.plans[key] || null;
   // Getting home: local (taxi/walk) or in town with a train to catch (leave 20 min before it).
   const town = (state.goals[key] || {}).where === 'town';
+  const atHome = atHomeTonight(key);
   const leaveAt = home ? (town ? home - 20 * MIN : home) : null;
   const fed = fedAt(now);
   const lastFood = s.food.length ? s.food[s.food.length - 1] : null;
@@ -493,7 +507,7 @@ function analyse() {
   const drunkPoint = matched ? { ...matched, fed: !!fed } : personalDrunkPoint(key);
 
   return { now, key, s, n, first, last, elapsed, lastHour, avgGap, paceLevel, uLevel, level,
-           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim, pe, town, leaveAt, pacePerPint, lastGap };
+           inSystem, soberAt, drinksSinceWater, lastCheckin, drinksSinceCheckin, home, drunkPoint, fed, lastFood, ended, goal, lim, pe, town, leaveAt, atHome, pacePerPint, lastGap };
 }
 
 // Plans count in pint-equivalents (a half = ½, a large wine ≈ 1¼, a shot ≈ ⅓).
@@ -976,7 +990,7 @@ function nudgePool(a) {
     const eq = MONEY_EQUIVALENTS.filter(([amt]) => s.spend >= amt).pop();
     if (eq) pool.push({ icon: '💷', text: `<b>${fmtMoney(s.spend)}</b> tonight. That's ${eq[1]}.` });
     const priced = s.drinks.filter(e => e.price != null);
-    if (priced.length && !a.ended) {
+    if (priced.length && !a.ended && !a.atHome) {
       const avg = sum(priced, e => e.price) / priced.length;
       pool.push({ icon: '💷', text: `The next one makes it <b>${fmtMoney(s.spend + avg)}</b>. A round for four: ~${fmtMoney(avg * 4)}.` });
     }
@@ -999,7 +1013,15 @@ function nudgePool(a) {
     pool.push({ icon: '🚕', text: "Missing the last train usually means a cab that costs more than tonight's bar bill." });
   }
   if (a.goal && a.goal.type === 'big' && n >= 3) pool.push({ icon: '🔋', text: "Phone battery, how you're getting home, who you're with. Sort those while you still care." });
-  if (a.paceLevel >= 1) pool.push({ icon: '🔁', text: 'In a round? Rounds pace everyone to the fastest drinker. Sit one out, or get yourself a half or a 0.0.' });
+  if (a.atHome) {
+    pool.push({ icon: '🏠', text: 'No last orders at home. Decide your last one now, while it\'s an easy decision.' });
+    if (s.drinks.some(e => /wine|spirits|cocktails/.test(e.cat))) pool.push({ icon: '🍷', text: 'Home pours run big: a "glass" is often 250ml of wine or a double of spirits. Worth checking what you actually poured.' });
+    // Compare with the pub only for drinks that have a pub price.
+    const pubbed = s.drinks.map(e => ({ e, d: state.library.find(x => x.id === e.drinkId) })).filter(x => x.d && x.d.price != null && x.e.price != null);
+    const pub = sum(pubbed, x => x.d.price), shop = sum(pubbed, x => x.e.price);
+    if (pubbed.length && pub > shop + 1) pool.push({ icon: '💷', text: `${fmtMoney(shop)} at shop prices. The same at the pub would be about <b>${fmtMoney(pub)}</b>.` });
+  }
+  if (a.paceLevel >= 1 && !a.atHome) pool.push({ icon: '🔁', text: 'In a round? Rounds pace everyone to the fastest drinker. Sit one out, or get yourself a half or a 0.0.' });
   if (s.drinks.some(e => e.cat === 'shots')) pool.push({ icon: '🥃', text: 'Avoiding shots is the single most reliable way to stop a night going wrong. One is plenty.' });
   if (s.softs.length) pool.push({ icon: '🫧', text: `${plural(s.softs.length, 'alcohol-free')} tonight. Every one is a drink you didn't have to recover from.` });
   if (u >= 10) pool.push({ icon: '🧠', text: "Past ~10 units, memory starts getting patchy. If you can't remember drink 6 tomorrow, that's why." });
@@ -1045,11 +1067,12 @@ function guidance(a) {
     }
     const streak = planStreak();
     if (G) return { title: `${G.emoji} ${G.label}: ${plural(goal.target, 'pint')}. Enjoy them.`, next: '',
-      actions: a.home ? ['food'] : ['home', 'food'], reasons: [
+      actions: a.home || a.atHome ? ['food'] : ['home', 'food'], reasons: [
         `Amber from about pint ${Math.max(1, Math.ceil(A / PINT_UNITS))}, red after ${plural(goal.target, 'pint')}. Halves count as half.`,
         goal.rule && RULES[goal.rule] ? `Your rule: when you hit ${goal.target}, you'll <b>${RULES[goal.rule].label}</b>.` : null,
         goal.why ? `Tomorrow: <b>${esc(goal.why)}</b>. That's what you're protecting.` : null,
         streak >= 2 ? `🔥 You've stuck to your plan <b>${streak} nights running</b>. Keep it going.` : null,
+        a.atHome ? "🏠 <b>Home pours run big.</b> A home glass of wine is often 250ml (3 units). Pour small, or use a measure." :
         a.home ? `Home by <b>${fmtTime(a.home)}</b>.` : (a.town ? 'Check your <b>last train</b> now, while you\'re sensible.' : 'Set a <b>home time</b> now, while you\'re sensible.'),
         '<b>Eat before you start.</b> It slows everything down.',
       ].filter(Boolean) };
@@ -1342,7 +1365,7 @@ function logDrink(drink, force) {
     size: sizeLabel(drink),
     units: unitsOf(drink.ml, drink.abv),
     kcal: kcalOf(drink.cat, drink.ml, drink.abv),
-    price: drink.price != null ? drink.price : null,
+    price: priceTonight(drink) != null ? priceTonight(drink) : null,
     ts: Date.now(),
   };
   state.log.push(entry);
@@ -1506,7 +1529,7 @@ function renderNow(a) {
     const dsw = a.drinksSinceWater;
     tiles.push(tile('💧', s.softs.length ? 'Water / 0.0' : 'Water', String(s.spacers),
       dsw >= 2 ? `${dsw} drinks since` : s.spacers ? 'keep it up' : 'tap to log', dsw >= 4 ? 2 : dsw >= 2 ? 1 : 'g', 'water'));
-    if (!a.ended) {
+    if (!a.ended && !a.atHome) {
       if (a.town) {
         if (!a.home) tiles.push(tile('🚆', 'Last train', '—', 'tap to set', n >= 2 ? 1 : 0, 'home'));
         else if (a.now > a.home) tiles.push(tile('🚆', 'Train', 'Missed', `was ${fmtTime(a.home)}`, 2, 'home'));
@@ -1744,7 +1767,7 @@ function saveMorning() {
 
 // "🚆 Leave in 35m · 23:34 train" / "🏠 Home in 1h 10m". Level: 0 calm, 1 last hour, 2 last 10 min or passed.
 function homeClock(a) {
-  if (!a.home || a.ended) return null;
+  if (!a.home || a.ended || a.atHome) return null;
   const now = Date.now();
   const window = a.town ? 90 * MIN : 60 * MIN;
   if ((a.town ? a.leaveAt : a.home) - now > window) return null;
@@ -1805,10 +1828,11 @@ function renderGrid() {
       <button class="drink" data-id="${esc(d.id)}">
         <span class="drink-units">${fmtUnits(unitsOf(d.ml, d.abv))}u</span>
         <span class="drink-name">${esc(d.name)}</span>
-        <span class="drink-meta">${esc(sizeLabel(d))} · ${d.abv}%${d.price != null ? ' · ' + fmtMoney(d.price) : ''}</span>
+        <span class="drink-meta">${esc(sizeLabel(d))} · ${d.abv}%${priceTonight(d) != null ? ' · ' + fmtMoney(priceTonight(d)) : ''}</span>
       </button>`).join('') +
     `<button class="drink add" data-add="1"><span class="plus">+</span>Add your own</button>`;
   $('editHint').hidden = !state.editing;
+  $('priceNote').hidden = !atHomeTonight();
 }
 
 function timelineRows(key, withDelete) {
@@ -1985,6 +2009,8 @@ function openDrinkSheet(mode, drink) {
   $('fName').value = d.name;
   $('fAbv').value = d.abv;
   $('fPrice').value = d.price != null ? d.price.toFixed(2) : '';
+  $('fHome').value = d.homePrice != null ? d.homePrice.toFixed(2) : '';
+  $('fHome').placeholder = drink ? shopEstimate(d).toFixed(2) + ' (est.)' : '1.50';
   $('fMl').value = state.sheet.otherMl ? d.ml : '';
   $('saveLogBtn').hidden = mode === 'edit';
   $('saveBtn').textContent = mode === 'edit' ? 'Save changes' : 'Save to library';
@@ -2023,7 +2049,9 @@ function readForm() {
   const ml = state.sheet.otherMl ? parseNum($('fMl').value) : state.sheet.ml;
   const p = parseNum($('fPrice').value);
   const price = p >= 0 ? Math.round(p * 100) / 100 : null;
-  return { name, abv, ml, price };
+  const h = parseNum($('fHome').value);
+  const homePrice = h >= 0 ? Math.round(h * 100) / 100 : null;
+  return { name, abv, ml, price, homePrice };
 }
 
 function updatePreview() {
@@ -2034,7 +2062,7 @@ function updatePreview() {
 }
 
 function submitDrinkSheet(action) {
-  const { name, abv, ml, price } = readForm();
+  const { name, abv, ml, price, homePrice } = readForm();
   if (!name) return $('fName').focus();
   if (!(abv > 0 && abv < 100)) return $('fAbv').focus();
   if (!(ml > 0 && ml < 5000)) return $('fMl').focus();
@@ -2045,9 +2073,11 @@ function submitDrinkSheet(action) {
     drink = state.library.find(d => d.id === s.id);
     const keepSize = drink.size && drink.ml === ml;
     Object.assign(drink, { name, abv, ml, price, cat: s.cat });
+    if (homePrice != null) drink.homePrice = homePrice; else delete drink.homePrice;
     if (!keepSize) delete drink.size;
   } else {
     drink = { id: 'u-' + uid(), cat: s.cat, name, abv, ml, price, custom: true };
+    if (homePrice != null) drink.homePrice = homePrice;
     state.library.push(drink);
   }
   save.library();
@@ -2096,7 +2126,7 @@ function renderPlanSheet() {
       <span class="plan-emoji">${g.emoji}</span>
       <span><b>${g.label}</b><small>${g.sub} · ~${plural(g.target, 'pint')}</small></span>
     </button>`).join('');
-  if (d.type === 'home') d.where = 'local';            // no train home from your own sofa
+  if (d.type === 'home') d.where = 'home';             // a night in is at home, by definition
   const sug = suggestAim(d);
   if (!d.manual) d.target = sug.aim;
   $('aimVal').textContent = d.target;
@@ -2109,8 +2139,8 @@ function renderPlanSheet() {
     .map(([k, l]) => `<button type="button" class="chip${(d.train || '') === k ? ' active' : ''}" data-train="${k}">${l}</button>`).join('');
   $('workToggle').classList.toggle('active', !!d.work);
   $('workToggle').textContent = d.work ? '🗓 Work tomorrow: yes' : '🗓 Work tomorrow: no';
-  $('whereToggle').classList.toggle('active', d.where === 'town');
-  $('whereToggle').textContent = d.where === 'town' ? '🚆 In town · train home' : '📍 Local · taxi or walk home';
+  $('whereToggle').classList.toggle('active', d.where !== 'local');
+  $('whereToggle').textContent = { local: '📍 Out locally · taxi or walk', town: '🚆 In town · train home', home: '🏠 At home · shop prices' }[d.where] || '📍 Out locally · taxi or walk';
   $('ruleChips').innerHTML = Object.entries(RULES).map(([k, r]) =>
     `<button type="button" class="chip${d.rule === k ? ' active' : ''}" data-rule="${k}">${r.emoji} ${r.label}</button>`).join('');
 }
@@ -2121,7 +2151,7 @@ function savePlan(type) {
   if (!state.planDraft.why && TRAINS[state.planDraft.train]) state.planDraft.why = TRAINS[state.planDraft.train].label + ' tomorrow';
   state.goals[key] = type === 'none' ? { type: 'none', where: state.planDraft.where, why: state.planDraft.why } : { ...state.planDraft };
   save.goals();
-  state.settings.lastWhere = state.planDraft.where;
+  if (state.planDraft.where !== 'home') state.settings.lastWhere = state.planDraft.where;   // don't default future nights to the sofa
   state.settings.lastRule = state.planDraft.rule;
   save.settings();
   closeSheets();
@@ -2218,6 +2248,7 @@ function bind() {
   $('planOpts').addEventListener('click', e => {
     const b = e.target.closest('[data-goal]');
     if (!b) return;
+    if (state.planDraft.type === 'home' && b.dataset.goal !== 'home') state.planDraft.where = state.settings.lastWhere || 'local';
     state.planDraft.type = b.dataset.goal;
     state.planDraft.manual = false;          // re-suggest for the new plan
     renderPlanSheet();
@@ -2237,7 +2268,11 @@ function bind() {
     const b = e.target.closest('[data-rule]');
     if (b) { state.planDraft.rule = b.dataset.rule; renderPlanSheet(); }
   });
-  $('whereToggle').addEventListener('click', () => { state.planDraft.where = state.planDraft.where === 'town' ? 'local' : 'town'; renderPlanSheet(); });
+  $('whereToggle').addEventListener('click', () => {
+    const order = ['local', 'town', 'home'];
+    state.planDraft.where = order[(order.indexOf(state.planDraft.where) + 1) % order.length];
+    renderPlanSheet();
+  });
   $('planSave').addEventListener('click', () => savePlan(state.planDraft.type));
   $('planSkip').addEventListener('click', () => savePlan('none'));
   $('guideCard').addEventListener('click', e => {
