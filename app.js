@@ -1517,7 +1517,7 @@ function renderNow(a) {
   const light = l => (l <= 0 ? 'g' : l);   // 0 → green
   if (n) {
     if (!a.ended) tiles.push(tile('🍺', 'Pace', n < 2 ? 'Fresh' : PACE_NAME[a.paceLevel],
-      n < 2 ? "first one's free" : `${Math.max(1, Math.round(a.pacePerPint / MIN))} min a pint`, light(a.paceLevel)));
+      n < 2 ? "first one's free" : a.pacePerPint < 5 * MIN ? 'back to back' : `${Math.round(a.pacePerPint / MIN)} min a pint`, light(a.paceLevel)));
     const tt = tomorrowTier(a, s.units);
     tiles.push(tile('🌅', 'Tomorrow', ['Fine', 'Groggy', 'Rough', 'Lost day', '2 days'][tt.tier],
       a.soberAt ? `clear ${fmtShortWhen(a.soberAt)}` : 'all clear', [ 'g', 'g', 1, 2, 2 ][tt.tier]));
@@ -2503,6 +2503,39 @@ render();
 // Only animate colour changes after the first paint, so it opens on the right colour.
 requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.add('ready')));
 
+/* ---------------- Behave like an app ---------------- */
+
+// iOS ignores user-scalable=no, so block pinch zoom here. Double-tap zoom is handled by
+// touch-action: manipulation in the CSS, which (unlike a touchend hack) never eats fast taps.
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+document.addEventListener('contextmenu', e => { if (!e.target.closest('input, textarea')) e.preventDefault(); });
+
+// "Add to Home Screen" tip: only in a browser tab, only once.
+(() => {
+  const standalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+  let seen = false;
+  try { seen = localStorage.getItem('dt.installTip') === '1'; } catch {}
+  if (!standalone && !seen) $('installTip').hidden = false;
+  $('installClose').addEventListener('click', () => {
+    $('installTip').hidden = true;
+    try { localStorage.setItem('dt.installTip', '1'); } catch {}
+  });
+})();
+
+// Updates: install quietly, reload once when the new version takes over,
+// and check again whenever the app comes back to the foreground.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+  });
 }

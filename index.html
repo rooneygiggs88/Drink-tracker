@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#14110d">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0a09">
+  <meta name="format-detection" content="telephone=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -113,16 +114,21 @@
     </section>
   </main>
 
+  <div class="install-tip" id="installTip" hidden>
+    <div><b>Add it to your Home Screen</b><br>Tap <span class="share-glyph">Share</span> then <b>Add to Home Screen</b>. It opens full-screen, works offline and keeps your data.</div>
+    <button id="installClose" aria-label="Dismiss">✕</button>
+  </div>
+
   <div class="toast" id="toast" hidden>
     <span id="toastText"></span>
     <button id="toastUndo">Undo</button>
   </div>
 
   <nav class="tabs">
-    <button class="tab active" data-view="now">Now</button>
-    <button class="tab" data-view="add">Add</button>
-    <button class="tab" data-view="tonight">Tonight</button>
-    <button class="tab" data-view="history">History</button>
+    <button class="tab active" data-view="now"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" class="fill"/></svg><span>Now</span></button>
+    <button class="tab" data-view="add"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M12 8v8M8 12h8"/></svg><span>Add</span></button>
+    <button class="tab" data-view="tonight"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg><span>Tonight</span></button>
+    <button class="tab" data-view="history"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" transform="translate(1 0)"/></svg><span>History</span></button>
   </nav>
 
   <!-- Drink editor sheet -->

@@ -1,5 +1,5 @@
 // Bump CACHE when you change any app file so phones pick up the update.
-const CACHE = 'drink-tracker-v27';
+const CACHE = 'drink-tracker-v29';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', e => {
