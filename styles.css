@@ -879,3 +879,15 @@ body.has-update .toast, body.has-update .install-tip { bottom: calc(var(--tabs-h
 /* iOS renders text inside a sticky element with backdrop-filter from a low-res snapshot
    (blurry header). Solid background instead: identical look on this theme, crisp text. */
 .app-header { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* Segmented control (home sheet) */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-top: 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); }
+.seg button { padding: 11px 8px; border-radius: 10px; font-weight: 800; font-size: 15px; color: var(--muted); }
+.seg button.active { background: var(--accent); color: var(--accent-ink); }
+
+/* iOS time inputs have an intrinsic width that can spill out of the sheet */
+input[type=time] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; min-height: 50px; }
+
+/* Header: fixed rather than sticky, which iOS composites at full resolution (crisp text) */
+.app-header { position: fixed; left: 0; right: 0; top: 0; }
+body { padding-top: calc(var(--safe-top) + var(--hdr-h)); }

@@ -2097,19 +2097,37 @@ function submitDrinkSheet(action) {
 
 function openHomeSheet() {
   const key = nightKey(Date.now());
+  // Start on whatever tonight says, but you can flip it right here.
+  state.homeMode = (state.goals[key] || {}).where === 'town' ? 'town' : 'local';
+  renderHomeSheet();
+  openSheet('homeSheet');
+}
+
+function renderHomeSheet() {
+  const key = nightKey(Date.now());
   const cur = state.plans[key];
   const curStr = cur ? fmtTime(cur) : null;
-  const town = (state.goals[key] || {}).where === 'town';
+  const town = state.homeMode === 'town';
+  $('homeModeLocal').classList.toggle('active', !town);
+  $('homeModeTown').classList.toggle('active', town);
   $('homeTitle').textContent = town ? 'Last train home' : 'Home by…';
   $('homeNote').textContent = town
-    ? `When's your last train? I'll get you out the door ${stationMinsFor(key)} minutes before it.`
+    ? `When's your last train? I'll get you out the door ${stationMinsFor(key)} minutes before it (change that in the plan).`
     : "Set it while you're sensible. We'll count down and nag when it passes.";
   $('homeSave').textContent = town ? 'Set last train' : 'Set home time';
-  $('homeChips').innerHTML = (town ? ['22:30', '23:00', '23:15', '23:30', '23:45', '00:15'] : ['22:00', '23:00', '23:30', '00:00', '01:00', '02:00'])
-    .map(t => `<button type="button" class="chip${t === curStr ? ' active' : ''}" data-time="${t}">${t}</button>`).join('');
-  $('homeTime').value = curStr || '';
+  const times = (town ? ['22:00', '22:30', '23:00', '23:15', '23:30', '23:45', '00:15', '00:45'] : ['21:00', '22:00', '23:00', '23:30', '00:00', '01:00', '02:00', '03:00'])
+    .filter(t => homeTimeToTs(key, t) > Date.now() + 15 * MIN).slice(0, 6);
+  $('homeChips').innerHTML = times.map(t => `<button type="button" class="chip${t === curStr ? ' active' : ''}" data-time="${t}">${t}</button>`).join('');
+  if (document.activeElement !== $('homeTime')) $('homeTime').value = curStr || '';
   $('homeClear').hidden = !cur;
-  openSheet('homeSheet');
+}
+
+function setHomeMode(mode) {
+  const key = nightKey(Date.now());
+  state.homeMode = mode;
+  const g = state.goals[key] || { type: 'none' };
+  if (g.where !== 'home') { g.where = mode; state.goals[key] = g; save.goals(); }
+  renderHomeSheet();
 }
 
 function openPlanSheet() {
@@ -2405,6 +2423,8 @@ function bind() {
   });
   $('homeSave').addEventListener('click', () => { if ($('homeTime').value) setHome($('homeTime').value); });
   $('homeClear').addEventListener('click', () => setHome(null));
+  $('homeModeLocal').addEventListener('click', () => setHomeMode('local'));
+  $('homeModeTown').addEventListener('click', () => setHomeMode('town'));
 
   // Add screen
   $('cats').addEventListener('click', e => {
