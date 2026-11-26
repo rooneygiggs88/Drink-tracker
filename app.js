@@ -755,8 +755,11 @@ function tomorrowTier(a, u) {
   let tier = u < 4 ? 0 : u < 8 ? 1 : u < 12 ? 2 : u < 16 ? 3 : 4;
   // If your own mornings say nights like this are worse, believe them over the rule of thumb.
   const ph = u >= 2 ? personalHistory(u, a.key) : null;
-  const personal = !!(ph && ph.topCount * 2 >= ph.n && ph.top > tier);
-  if (personal) tier = Math.min(4, ph.top);
+  // Worse than the rule of thumb: believe it after 2 similar nights. Better: after 3 (one lucky
+  // morning shouldn't talk you into more).
+  const agree = ph && ph.topCount * 2 >= ph.n;
+  const personal = !!(agree && ((ph.top > tier) || (ph.top < tier && ph.n >= 3)));
+  if (personal) tier = Math.max(0, Math.min(4, ph.top));
   return {
     tier, personal,
     extra: [0, 2, 6, 12, 30][tier],          // hours of feeling rough after you hit zero
