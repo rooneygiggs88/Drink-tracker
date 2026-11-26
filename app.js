@@ -650,8 +650,12 @@ function tomorrowTier(a, u) {
   return {
     tier,
     extra: [0, 2, 6, 12, 30][tier],          // hours of feeling rough after you hit zero
-    short: ["you're fine tomorrow, gym's on", 'a slower morning, light training only',
-            'a rough morning, no heavy training', 'a full-day hangover', 'a two-day recovery'][tier],
+    day,
+    short: ['fine. Gym and runs are on',
+            'a slower morning. Light gym or an easy run, no PBs',
+            'a rough morning. A heavy session or long run is a write-off',
+            'a full-day hangover. No training',
+            `a two-day recovery. No gym or runs until ${day2}`][tier],
     text: [
       `Should be fine ${day}. Gym's on.`,
       `Expect a slower ${day} morning. Sleep takes a hit above ~4 units. Light training's fine, no PBs.`,
@@ -698,9 +702,8 @@ function stopNowLines(a, g) {
   lines.push(`Clear by <b>${fmtWhen(zeroNow)}</b>. One more pushes that to <b>${fmtWhen(zeroMore)}</b>.`);
 
   const now = tomorrowTier(a, u), next = tomorrowTier(a, u + more);
-  lines.push(next.tier > now.tier
-    ? `Stop now: ${now.short}. <b>One more:</b> ${next.short}.`
-    : `Stop now: ${now.short}.`);
+  lines.push(`🏋️ <b>${now.day}:</b> ${now.short}.` +
+    (next.tier > now.tier ? `<br><b>One more pint:</b> ${next.short}.` : ''));
 
   if (u >= 4) {
     const plain = zeroNow + now.extra * HOUR;
