@@ -1481,6 +1481,7 @@ function renderNow(a) {
   const timeLvl = (g.missed || g.leaveNow || g.pastHome) ? 2 : g.trainSoon ? 1 : -1;
   setLevelClass($('panel'), n ? Math.max(a.level, timeLvl) : a.level);
   $('nowDate').textContent = 'Tonight · ' + fmtNight(a.key) + (a.ended ? ' · done at ' + fmtTime(a.ended) : '');
+  $('hdrSub').textContent = fmtNight(a.key) + (a.ended ? ' · done ' + fmtTime(a.ended) : '');
   $('nowDrinks').textContent = n;
   $('nowDrinksLabel').textContent = n === 1 ? 'drink' : 'drinks';
   $('nowUnits').textContent = fmtUnits(s.units);
@@ -1785,6 +1786,8 @@ function homeClock(a) {
 }
 
 function renderBar(a) {
+  $('hdrTitle').textContent = { now: 'Tonight', add: 'Add a drink', tonight: "Tonight's log", history: 'History' }[state.view];
+  if (state.view !== 'now') $('hdrSub').textContent = fmtNight(a.key);
   const bar = $('bar');
   bar.hidden = state.view === 'now';
   setLevelClass(bar, a.level);

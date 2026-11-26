@@ -801,3 +801,45 @@ button.tile:active { transform: scale(.97); }
 .plan-sec-head { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; margin-bottom: 10px; }
 .plan-sec .field { margin-top: 12px; }
 .toggles.left { justify-content: flex-start; margin-top: 10px; }
+
+/* ---------- App header: anchors the top under the status bar ---------- */
+:root { --hdr-h: 46px; }
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(var(--safe-top) + 6px) 18px 8px;
+  min-height: calc(var(--safe-top) + var(--hdr-h));
+  background: rgba(11,10,9,.94);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.hdr-left { display: flex; align-items: center; gap: 9px; font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+.hdr-logo { width: 24px; height: 24px; }
+.hdr-logo .glass { fill: var(--accent); }
+.hdr-logo .head { fill: var(--text); }
+.hdr-right { font-size: 14px; font-weight: 600; color: var(--muted); }
+
+/* The traffic-light panel becomes a card under the header */
+.panel {
+  margin: 10px 12px 0;
+  padding: 16px 20px 20px;
+  border-radius: 24px;
+}
+.panel-date { display: none; }
+
+/* On other tabs the tally is a pinned pill under the header */
+.bar {
+  top: calc(var(--safe-top) + var(--hdr-h) + 2px);
+  margin: 10px 12px 0;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 18px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+.bar { box-shadow: 0 -12px 0 0 var(--bg), 0 8px 24px rgba(0,0,0,.35); }   /* cover the gap above when pinned */

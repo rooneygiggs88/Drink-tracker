@@ -17,6 +17,14 @@
 </head>
 <body>
   <!-- Slim status bar shown on every screen except Now -->
+  <header class="app-header" id="appHeader">
+    <div class="hdr-left">
+      <svg class="hdr-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12l-1.4 15H7.4z" class="glass"/><path d="M5.6 6c0-2 1.6-3 3.2-2.4C9.6 2 11.8 1.6 13 2.8c1.6-1 4.4-.2 4.4 2.2V7H5.6z" class="head"/></svg>
+      <span id="hdrTitle">Tonight</span>
+    </div>
+    <span class="hdr-right" id="hdrSub"></span>
+  </header>
+
   <header class="bar lvl-none" id="bar" hidden>
     <span id="barMain">0 drinks · 0.0 units</span>
     <span id="barSub"></span>
